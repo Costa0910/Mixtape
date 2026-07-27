@@ -53,6 +53,7 @@ struct Downloader {
                          mp3Bitrate: String,
                          skipVlogs: Bool,
                          libraryRoot: URL,
+                         padding: Int = 3,
                          onProgress: @escaping (DownloadProgress) -> Void) async throws -> URL {
         let exe = try ytdlp()
         let safeAlbum = Organizer.safeName(album)
@@ -71,7 +72,8 @@ struct Downloader {
             "--ignore-errors", "--no-warnings", "--newline",
         ]
         if skipVlogs { args += ["--match-filters", "title!~=(?i)vlog"] }
-        let template = albumDir.appendingPathComponent("%(playlist_index,autonumber)03d - %(title)s.%(ext)s").path
+        let pad = max(1, min(padding, 4))
+        let template = albumDir.appendingPathComponent("%(playlist_index,autonumber)0\(pad)d - %(title)s.%(ext)s").path
         args += ["-o", template, url]
 
         var prog = DownloadProgress()

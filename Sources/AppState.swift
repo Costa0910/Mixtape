@@ -1,117 +1,144 @@
 import Foundation
 import SwiftUI
 
+// A discovered album folder in the library.
+struct AlbumFolder: Identifiable, Hashable {
+    var id: String { url.path }
+    let url: URL
+    let name: String
+    let trackCount: Int
+}
+
 @MainActor
 final class AppState: ObservableObject {
+    let settings: SettingsStore
 
-    // Input / options
-    @Published var urlInput = ""
-    @Published var format: AudioFormat = .m4a
-    @Published var mp3Bitrate = "320"
-    @Published var skipVlogs = true
-    @Published var albumName = ""
-
-    // Pipeline state
-    @Published var phase: Phase = .idle
-    @Published var analysis: Analysis?
-    @Published var progressValue: Double = 0      // 0…1 for current stage
-    @Published var progressDetail = ""
-    @Published var log: [String] = []
-
-    // Library / output
-    @Published var libraryRoot: URL = {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Music/Mixtape", isDirectory: true)
-    }()
-    @Published var lastAlbumDir: URL?
+    @Published var section: AppSection = .download
+    @Published var jobs: [DownloadJob] = []
 
     // Devices
     @Published var phones: [Phone] = []
     @Published var selectedPhone: Phone?
     @Published var transferStatus = ""
     @Published var transferring = false
+    @Published var transferProgress: Double = 0
 
-    var missingTools: [Tool] { BinaryLocator.missingRequired() }
+    // Library
+    @Published var albums: [AlbumFolder] = []
+
+    private var processing = false
+
+    init(settings: SettingsStore) { self.settings = settings }
+
     var adbAvailable: Bool { BinaryLocator.url(for: .adb) != nil }
+    var missingTools: [Tool] { BinaryLocator.missingRequired() }
+    var activeJobCount: Int { jobs.filter { $0.status.isActive || $0.status == .queued }.count }
 
-    private func logLine(_ s: String) {
-        log.append(s)
-        if log.count > 500 { log.removeFirst(log.count - 500) }
+    // MARK: Queue
+
+    func enqueue(url: String, format: AudioFormat, bitrate: String,
+                 skipVlogs: Bool, customAlbum: String?) {
+        let job = DownloadJob(url: url, format: format, bitrate: bitrate,
+                              skipVlogs: skipVlogs, customAlbum: customAlbum)
+        jobs.insert(job, at: 0)
+        processNext()
     }
 
-    // MARK: Analyze
-
-    func analyze() {
-        let url = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
-        phase = .analyzing
-        analysis = nil
-        Task {
-            do {
-                let a = try await Downloader.analyze(url)
-                self.analysis = a
-                self.albumName = a.albumName
-                self.phase = .ready
-                self.logLine("Found \(a.entries.count) track(s) · album “\(a.albumName)”"
-                             + (a.vlogCount > 0 ? " · \(a.vlogCount) vlog(s) will be skipped" : ""))
-            } catch {
-                self.phase = .failed(error.localizedDescription)
-                self.logLine("Analyze failed: \(error.localizedDescription)")
-            }
-        }
+    func cancel(_ job: DownloadJob) {
+        job.task?.cancel()
+        job.status = .cancelled
+        job.detail = "Cancelled"
+        processNext()
     }
 
-    // MARK: Download + organize
+    func clearFinished() { jobs.removeAll { $0.status.isFinished } }
 
-    func startDownload() {
-        let url = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
-        let album = albumName.isEmpty ? (analysis?.albumName ?? "Downloaded Music") : albumName
-        let genre = "Music"
-        phase = .downloading
-        progressValue = 0
-        progressDetail = "Starting…"
-        Task {
-            do {
-                try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
-                let albumDir = try await Downloader.download(
-                    url: url, album: album, format: format, mp3Bitrate: mp3Bitrate,
-                    skipVlogs: skipVlogs, libraryRoot: libraryRoot
-                ) { p in
-                    Task { @MainActor in self.applyDownloadProgress(p) }
-                }
-                self.phase = .organizing
-                self.progressValue = 0
-                self.progressDetail = "Tagging…"
-                try await Organizer.tagAlbum(albumDir, album: album, genre: genre) { frac, name in
-                    Task { @MainActor in
-                        self.progressValue = frac
-                        self.progressDetail = "Tagging \(name)"
+    private func processNext() {
+        guard !processing else { return }
+        guard let job = jobs.last(where: { $0.status == .queued }) else { return }
+        processing = true
+        job.task = Task { await self.run(job); self.processing = false; self.processNext() }
+    }
+
+    private func run(_ job: DownloadJob) async {
+        do {
+            // 1) analyze to get album name + count
+            job.status = .analyzing
+            let analysis = try await Downloader.analyze(job.url)
+            if Task.isCancelled { return }
+            let album = job.customAlbum ?? analysis.albumName
+            job.title = album
+            job.trackCount = analysis.entries.count
+
+            // 2) download
+            job.status = .downloading
+            let albumDir = try await Downloader.download(
+                url: job.url, album: album, format: job.format, mp3Bitrate: job.bitrate,
+                skipVlogs: job.skipVlogs, libraryRoot: settings.libraryURL,
+                padding: settings.trackPadding
+            ) { p in
+                Task { @MainActor in
+                    if p.itemTotal > 0 {
+                        let base = Double(max(p.itemIndex - 1, 0)) / Double(p.itemTotal)
+                        job.progress = base + (p.filePercent / 100) / Double(p.itemTotal)
+                        job.detail = "Track \(p.itemIndex)/\(p.itemTotal) · \(p.currentTitle)"
+                    } else {
+                        job.progress = p.filePercent / 100
+                        if !p.currentTitle.isEmpty { job.detail = p.currentTitle }
                     }
                 }
-                try Organizer.writePlaylists(libraryRoot: self.libraryRoot)
-                self.lastAlbumDir = albumDir
-                self.phase = .done
-                self.progressValue = 1
-                self.progressDetail = "Saved to \(albumDir.lastPathComponent)"
-                self.logLine("Done · \(album) saved to \(albumDir.path)")
-            } catch {
-                self.phase = .failed(error.localizedDescription)
-                self.logLine("Download failed: \(error.localizedDescription)")
             }
+            if Task.isCancelled { return }
+
+            // 3) organize
+            job.status = .organizing
+            job.detail = "Tagging…"
+            try await Organizer.tagAlbum(albumDir, album: album,
+                                         genre: settings.genre.isEmpty ? nil : settings.genre) { frac, name in
+                Task { @MainActor in job.progress = frac; job.detail = "Tagging \(name)" }
+            }
+            if settings.makePlaylists {
+                try Organizer.writePlaylists(libraryRoot: settings.libraryURL)
+            }
+            job.albumDir = albumDir
+            job.progress = 1
+            job.status = .done
+            job.detail = "\(job.trackCount) track(s) saved"
+            scanLibrary()
+            if settings.autoTransfer, let phone = selectedPhone { transfer(to: phone) }
+        } catch is CancellationError {
+            job.status = .cancelled
+        } catch {
+            job.status = .failed(error.localizedDescription)
+            job.detail = error.localizedDescription
         }
     }
 
-    private func applyDownloadProgress(_ p: DownloadProgress) {
-        if p.itemTotal > 0 {
-            let base = Double(max(p.itemIndex - 1, 0)) / Double(p.itemTotal)
-            progressValue = base + (p.filePercent / 100.0) / Double(p.itemTotal)
-            progressDetail = "Track \(p.itemIndex)/\(p.itemTotal) · \(p.currentTitle)"
-        } else {
-            progressValue = p.filePercent / 100.0
-            if !p.currentTitle.isEmpty { progressDetail = p.currentTitle }
+    // MARK: Library
+
+    func scanLibrary() {
+        let fm = FileManager.default
+        let root = settings.libraryURL
+        var found: [AlbumFolder] = []
+        if let dirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) {
+            for dir in dirs where (try? dir.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                let tracks = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
+                    .filter { ["m4a", "mp3", "opus", "ogg"].contains($0.pathExtension.lowercased()) } ?? []
+                if !tracks.isEmpty {
+                    found.append(AlbumFolder(url: dir, name: dir.lastPathComponent, trackCount: tracks.count))
+                }
+            }
         }
+        albums = found.sorted { $0.name < $1.name }
     }
+
+    func deleteAlbum(_ album: AlbumFolder) {
+        try? FileManager.default.removeItem(at: album.url)
+        if settings.makePlaylists { try? Organizer.writePlaylists(libraryRoot: settings.libraryURL) }
+        scanLibrary()
+    }
+
+    func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
 
     // MARK: Devices
 
@@ -119,38 +146,34 @@ final class AppState: ObservableObject {
         Task {
             let found = await Transfer.detectPhones()
             self.phones = found
-            if self.selectedPhone == nil { self.selectedPhone = found.first }
-            self.logLine("Detected \(found.count) phone(s).")
+            if self.selectedPhone == nil || !found.contains(where: { $0.id == self.selectedPhone?.id }) {
+                self.selectedPhone = found.first
+            }
         }
     }
 
-    func transfer() {
-        guard let phone = selectedPhone else { transferStatus = "No phone selected."; return }
+    func transfer(to phone: Phone) {
         transferring = true
         transferStatus = ""
+        transferProgress = 0
         Task {
             do {
                 switch phone.kind {
                 case .android:
-                    try await Transfer.pushAndroid(libraryRoot: libraryRoot, phone: phone) { frac, detail in
+                    try await Transfer.pushAndroid(libraryRoot: settings.libraryURL, phone: phone) { frac, detail in
                         Task { @MainActor in
-                            if frac >= 0 { self.progressValue = frac }
+                            if frac >= 0 { self.transferProgress = frac }
                             self.transferStatus = detail
                         }
                     }
-                    self.transferStatus = "✓ Transferred to \(phone.name). Open a music player on the phone."
+                    self.transferStatus = "✓ Transferred to \(phone.name)."
                 case .iphone:
-                    let msg = try await Transfer.prepareIPhone(libraryRoot: libraryRoot)
-                    self.transferStatus = msg
+                    self.transferStatus = try await Transfer.prepareIPhone(libraryRoot: settings.libraryURL)
                 }
             } catch {
                 self.transferStatus = "Transfer failed: \(error.localizedDescription)"
             }
             self.transferring = false
         }
-    }
-
-    func revealLibrary() {
-        NSWorkspace.shared.activateFileViewerSelecting([lastAlbumDir ?? libraryRoot])
     }
 }

@@ -69,6 +69,79 @@ enum Phase: Equatable {
     }
 }
 
+// Sidebar sections of the app.
+enum AppSection: String, CaseIterable, Identifiable {
+    case download, library, devices, settings
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .download: return "Download"
+        case .library:  return "Library"
+        case .devices:  return "Devices"
+        case .settings: return "Settings"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .download: return "arrow.down.circle"
+        case .library:  return "music.note.list"
+        case .devices:  return "iphone.gen3"
+        case .settings: return "gearshape"
+        }
+    }
+}
+
+// Status of a single download job in the queue.
+enum JobStatus: Equatable {
+    case queued, analyzing, downloading, organizing, done, cancelled
+    case failed(String)
+    var label: String {
+        switch self {
+        case .queued: return "Queued"
+        case .analyzing: return "Analyzing"
+        case .downloading: return "Downloading"
+        case .organizing: return "Organizing"
+        case .done: return "Done"
+        case .cancelled: return "Cancelled"
+        case .failed: return "Failed"
+        }
+    }
+    var isActive: Bool {
+        switch self { case .analyzing, .downloading, .organizing: return true; default: return false }
+    }
+    var isFinished: Bool {
+        switch self { case .done, .cancelled, .failed: return true; default: return false }
+    }
+}
+
+// One queued/active download.
+@MainActor
+final class DownloadJob: ObservableObject, Identifiable {
+    let id = UUID()
+    let url: String
+    let format: AudioFormat
+    let bitrate: String
+    let skipVlogs: Bool
+    var customAlbum: String?
+
+    @Published var title: String
+    @Published var status: JobStatus = .queued
+    @Published var progress: Double = 0
+    @Published var detail: String = ""
+    @Published var trackCount: Int = 0
+    var albumDir: URL?
+    var task: Task<Void, Never>?
+
+    init(url: String, format: AudioFormat, bitrate: String, skipVlogs: Bool, customAlbum: String?) {
+        self.url = url
+        self.format = format
+        self.bitrate = bitrate
+        self.skipVlogs = skipVlogs
+        self.customAlbum = customAlbum
+        self.title = customAlbum ?? url
+    }
+}
+
 // A connected phone we can transfer to.
 struct Phone: Identifiable, Hashable {
     enum Kind { case android, iphone }

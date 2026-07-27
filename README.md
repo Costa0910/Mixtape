@@ -4,15 +4,17 @@ A native macOS app that turns a YouTube URL into an organized music library on y
 
 Built with SwiftUI. Wraps `yt-dlp` + `ffmpeg` + `adb` so you never touch the terminal.
 
-## What it does
+## Features
 
-1. **Paste** a YouTube video or playlist URL
-2. **Analyze** — see the track list, count, and any non-music "vlog" entries (auto-skippable)
-3. **Download** — pick a format (M4A original / MP3 / Opus), with live progress
-4. **Organize** — one album folder per playlist, proper `album` / `artist` / `track` tags, embedded cover art, and `.m3u8` playlists (including an *All Songs* list for shuffle-everything)
-5. **Send to phone**
-   - **Android** — fully automatic over USB (`adb push` + media rescan so players see it instantly)
-   - **iPhone** — assisted: imports into the Music app for you, then you do the final **Sync** in Finder (Apple blocks apps from pushing music directly)
+- **Guided onboarding** — first-run flow that welcomes you, checks the engine tools, and sets your library location.
+- **Sidebar app** — Download, Library, Devices, and Settings, not just one window.
+- **Download queue** — paste a YouTube video/playlist URL, preview the track list (with auto-skip of non-music "vlogs"), and queue multiple downloads with live per-job progress.
+- **Automatic organization** — one album folder per playlist, clean `album` / `artist` / `track` tags, embedded cover art, and `.m3u8` playlists (including an *All Songs* list for shuffle-everything).
+- **Library browser** — a grid of your albums with extracted cover artwork; reveal or delete in a click.
+- **Send to phone**
+  - **Android** — fully automatic over USB (`adb push` + media rescan so players see it instantly).
+  - **iPhone** — assisted: imports into the Music app for you, then you do the final **Sync** in Finder (Apple blocks apps from pushing music directly).
+- **Customizable** — default format/bitrate, naming & track-number padding, playlist generation, genre tag, library location, auto-transfer, and accent color.
 
 ## Requirements
 
