@@ -1,0 +1,42 @@
+name: Mixtape
+options:
+  bundleIdPrefix: com.costa
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    PRODUCT_NAME: Mixtape
+    ENABLE_HARDENED_RUNTIME: NO
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+targets:
+  Mixtape:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+      - path: Resources
+        optional: true
+      - path: Tools/bin
+        type: folder
+        optional: true
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleName: Mixtape
+        CFBundleDisplayName: Mixtape
+        LSMinimumSystemVersion: "14.0"
+        NSHighResolutionCapable: true
+        LSApplicationCategoryType: public.app-category.music
+    entitlements:
+      path: Sources/Mixtape.entitlements
+      properties:
+        com.apple.security.app-sandbox: false

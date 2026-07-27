@@ -1,0 +1,14 @@
+# Build output
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Generated project (regenerate with `xcodegen generate`)
+Mixtape.xcodeproj/
+
+# Bundled binaries — fetched via Scripts/fetch-tools.sh, not committed
+Tools/bin/
+
+# macOS
+.DS_Store
