@@ -142,6 +142,14 @@ final class DownloadJob: ObservableObject, Identifiable {
     }
 }
 
+// A single audio file inside an album.
+struct TrackFile: Identifiable, Hashable {
+    var id: String { url.path }
+    let url: URL
+    let index: Int
+    let title: String
+}
+
 // A connected phone we can transfer to.
 struct Phone: Identifiable, Hashable {
     enum Kind { case android, iphone }

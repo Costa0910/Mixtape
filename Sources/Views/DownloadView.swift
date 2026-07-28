@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct DownloadView: View {
     @EnvironmentObject var state: AppState
@@ -14,6 +15,8 @@ struct DownloadView: View {
     @State private var analysis: Analysis?
     @State private var analyzing = false
     @State private var analyzeError: String?
+    @State private var analyzeTask: Task<Void, Never>?
+    @State private var dropTargeted = false
 
     var body: some View {
         ScrollView {
@@ -53,7 +56,11 @@ struct DownloadView: View {
                 }
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .background(.background, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(dropTargeted ? AnyShapeStyle(.tint) : AnyShapeStyle(.white.opacity(0.08)),
+                                  lineWidth: dropTargeted ? 2 : 1))
+                .onChange(of: url) { _, newValue in scheduleAnalyze(newValue) }
+                .onDrop(of: [.url, .text, .plainText], isTargeted: $dropTargeted) { handleDrop($0) }
 
                 HStack(spacing: 14) {
                     Picker("", selection: $format) {
@@ -132,6 +139,31 @@ struct DownloadView: View {
         state.enqueue(url: url, format: format, bitrate: bitrate, skipVlogs: skipVlogs, customAlbum: album)
         url = ""; analysis = nil; customAlbum = ""
     }
+
+    private func scheduleAnalyze(_ value: String) {
+        analyzeTask?.cancel()
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.contains("http") else { analysis = nil; analyzeError = nil; return }
+        analyzeTask = Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            if Task.isCancelled { return }
+            analyze()
+        }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.canLoadObject(ofClass: URL.self) {
+            _ = provider.loadObject(ofClass: URL.self) { u, _ in
+                if let u { Task { @MainActor in self.url = u.absoluteString } }
+            }
+        } else {
+            _ = provider.loadObject(ofClass: String.self) { s, _ in
+                if let s { Task { @MainActor in self.url = s.trimmingCharacters(in: .whitespacesAndNewlines) } }
+            }
+        }
+        return true
+    }
 }
 
 struct JobRow: View {
@@ -145,6 +177,10 @@ struct JobRow: View {
                 Text(job.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
                 Spacer()
                 StatusBadge(text: job.status.label, color: color)
+                if case .failed = job.status {
+                    Button { state.retry(job) } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless).help("Retry")
+                }
                 if !job.status.isFinished {
                     Button { state.cancel(job) } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.borderless).foregroundStyle(.secondary)

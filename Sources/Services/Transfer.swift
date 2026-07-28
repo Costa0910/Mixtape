@@ -62,21 +62,31 @@ struct Transfer {
     // MARK: Android — fully automatic
 
     static func pushAndroid(libraryRoot: URL,
+                            albums: [AlbumFolder],
                             phone: Phone,
                             onProgress: @escaping (Double, String) -> Void) async throws {
         guard let adb = BinaryLocator.url(for: .adb) else { throw RunError.notFound("adb") }
-        let dest = "/sdcard/Music/"
-        for try await line in ProcessRunner.stream(adb, ["-s", phone.id, "push", libraryRoot.path, dest]) {
-            if let r = line.range(of: #"(\d+)%"#, options: .regularExpression) {
-                let n = line[r].dropLast()
-                onProgress((Double(n) ?? 0) / 100.0, "Copying…")
-            } else {
-                onProgress(-1, line)
+        let rootName = libraryRoot.lastPathComponent
+        let destBase = "/sdcard/Music/\(rootName)"
+        _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", "mkdir", "-p", destBase])
+
+        let total = max(albums.count, 1)
+        for (i, album) in albums.enumerated() {
+            for try await line in ProcessRunner.stream(adb, ["-s", phone.id, "push", album.url.path, destBase + "/"]) {
+                if let r = line.range(of: #"(\d+)%"#, options: .regularExpression) {
+                    let pct = (Double(line[r].dropLast()) ?? 0) / 100.0
+                    onProgress((Double(i) + pct) / Double(total), "Copying \(album.name)…")
+                }
+            }
+        }
+        // include the playlist files (best-effort)
+        if let m3us = try? FileManager.default.contentsOfDirectory(at: libraryRoot, includingPropertiesForKeys: nil) {
+            for pl in m3us where pl.pathExtension == "m3u8" {
+                _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "push", pl.path, destBase + "/"])
             }
         }
         // force a metadata scan so players see the tracks (sets is_music/duration)
-        let folderName = libraryRoot.lastPathComponent
-        let scan = "find '/sdcard/Music/\(folderName)' -name '*.m4a' -o -name '*.mp3' -o -name '*.opus' | while read f; do am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://$f\" >/dev/null 2>&1; done; echo scanned"
+        let scan = "find '\(destBase)' -name '*.m4a' -o -name '*.mp3' -o -name '*.opus' | while read f; do am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://$f\" >/dev/null 2>&1; done; echo scanned"
         _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", scan])
     }
 
@@ -84,7 +94,7 @@ struct Transfer {
 
     // Copies audio into Music's auto-import folder and opens Music. The user
     // does the final "Sync" in Finder. Returns a human-readable status.
-    static func prepareIPhone(libraryRoot: URL) async throws -> String {
+    static func prepareIPhone(albums: [AlbumFolder]) async throws -> String {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
         let autoAdd = home
@@ -93,8 +103,9 @@ struct Transfer {
             throw RunError.exit(1, "Couldn't find the Music auto-import folder. Open the Music app once, then retry.")
         }
         var count = 0
-        if let en = fm.enumerator(at: libraryRoot, includingPropertiesForKeys: nil) {
-            for case let f as URL in en where ["m4a", "mp3", "opus"].contains(f.pathExtension.lowercased()) {
+        for album in albums {
+            let files = (try? fm.contentsOfDirectory(at: album.url, includingPropertiesForKeys: nil)) ?? []
+            for f in files where ["m4a", "mp3", "opus"].contains(f.pathExtension.lowercased()) {
                 let dest = autoAdd.appendingPathComponent(f.lastPathComponent)
                 try? fm.removeItem(at: dest)
                 try fm.copyItem(at: f, to: dest)

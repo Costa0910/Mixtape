@@ -4,14 +4,22 @@ struct LibraryView: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var settings: SettingsStore
 
+    @State private var search = ""
+    @State private var selected: AlbumFolder?
+
     private let columns = [GridItem(.adaptive(minimum: 180, maximum: 220), spacing: 16)]
+
+    private var filtered: [AlbumFolder] {
+        search.isEmpty ? state.albums
+            : state.albums.filter { $0.name.localizedCaseInsensitiveContains(search) }
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     ScreenHeader(title: "Library",
-                                 subtitle: "\(state.albums.count) albums · \(totalTracks) tracks",
+                                 subtitle: "\(state.albums.count) albums · \(totalTracks) tracks · \(librarySize)",
                                  systemImage: "music.note.list")
                     Button { state.reveal(settings.libraryURL) } label: {
                         Label("Open folder", systemImage: "folder")
@@ -21,9 +29,17 @@ struct LibraryView: View {
                 if state.albums.isEmpty {
                     emptyState
                 } else {
+                    HStack {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        TextField("Search albums…", text: $search).textFieldStyle(.plain)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+                    .frame(maxWidth: 320)
+
                     LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(state.albums) { album in
-                            AlbumTile(album: album)
+                        ForEach(filtered) { album in
+                            AlbumTile(album: album) { selected = album }
                         }
                     }
                 }
@@ -31,9 +47,17 @@ struct LibraryView: View {
             .padding(22)
         }
         .onAppear { state.scanLibrary() }
+        .sheet(item: $selected) { album in AlbumDetailView(album: album) }
     }
 
     private var totalTracks: Int { state.albums.reduce(0) { $0 + $1.trackCount } }
+    private var librarySize: String {
+        let bytes = state.albums.reduce(Int64(0)) { acc, album in
+            let files = (try? FileManager.default.contentsOfDirectory(at: album.url, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+            return acc + files.reduce(Int64(0)) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }
+        }
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
 
     private var emptyState: some View {
         VStack(spacing: 12) {
@@ -51,8 +75,10 @@ struct LibraryView: View {
 
 struct AlbumTile: View {
     let album: AlbumFolder
+    var onOpen: () -> Void
     @EnvironmentObject var state: AppState
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject var player: Player
     @State private var art: NSImage?
     @State private var hovering = false
 
@@ -66,9 +92,19 @@ struct AlbumTile: View {
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                     Image(systemName: "music.note").font(.system(size: 34)).foregroundStyle(.white.opacity(0.85))
                 }
+                if hovering { Color.black.opacity(0.25) }
             }
             .frame(height: 170).frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                if hovering {
+                    Button { playFirst() } label: {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 44)).foregroundStyle(.white)
+                            .shadow(radius: 6)
+                    }.buttonStyle(.plain)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if hovering {
                     HStack(spacing: 6) {
@@ -77,12 +113,20 @@ struct AlbumTile: View {
                     }.padding(8)
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onOpen)
 
             Text(album.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
             Text("\(album.trackCount) tracks").font(.caption).foregroundStyle(.secondary)
         }
+        .scaleEffect(hovering ? 1.02 : 1)
+        .animation(.snappy(duration: 0.15), value: hovering)
         .onHover { hovering = $0 }
         .task { art = await ArtworkStore.shared.artwork(for: album) }
+    }
+
+    private func playFirst() {
+        if let first = state.tracks(in: album).first { player.toggle(first.url) }
     }
 }
 

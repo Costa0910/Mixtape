@@ -67,7 +67,7 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(.background)
         }
-        .onAppear { state.scanLibrary(); state.refreshPhones() }
+        .onAppear { state.scanLibrary(); state.refreshPhones(); Notifier.requestAuth() }
     }
 }
 
@@ -140,6 +140,11 @@ struct SidebarRow: View {
                 RoundedRectangle(cornerRadius: 9)
                     .fill(selected ? AnyShapeStyle(.tint.opacity(0.15))
                                    : AnyShapeStyle(hovering ? Color.primary.opacity(0.06) : .clear))
+            }
+            .overlay(alignment: .leading) {
+                if selected {
+                    Capsule().fill(.tint).frame(width: 3, height: 16).offset(x: 2)
+                }
             }
         }
         .buttonStyle(.plain)

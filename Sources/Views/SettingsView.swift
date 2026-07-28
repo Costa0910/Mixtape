@@ -64,6 +64,15 @@ struct SettingsView: View {
 
                     Section("Tools") {
                         toolRow(.ytdlp); toolRow(.ffmpeg); toolRow(.adb)
+                        HStack {
+                            Button { state.updateYtDlp() } label: {
+                                Label("Update yt-dlp", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                            if !state.ytdlpUpdateStatus.isEmpty {
+                                Text(state.ytdlpUpdateStatus).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.tail)
+                            }
+                        }
                         Text("Bundle them with Scripts/fetch-tools.sh for a self-contained app.")
                             .font(.caption).foregroundStyle(.secondary)
                     }

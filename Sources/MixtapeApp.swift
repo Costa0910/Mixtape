@@ -16,6 +16,7 @@ struct MixtapeApp: App {
             RootView()
                 .environmentObject(state)
                 .environmentObject(settings)
+                .environmentObject(Player.shared)
                 .tint(settings.accent.color)
                 .frame(minWidth: 900, minHeight: 640)
         }

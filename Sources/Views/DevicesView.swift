@@ -29,6 +29,8 @@ struct DevicesView: View {
                     infoCard("Nothing to transfer yet",
                              "Download some music first — then it'll appear here to send.",
                              "tray")
+                } else {
+                    albumSelector
                 }
 
                 if state.phones.isEmpty {
@@ -48,6 +50,34 @@ struct DevicesView: View {
             .padding(22)
         }
         .onAppear { state.refreshPhones() }
+    }
+
+    private var albumSelector: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("Albums to send", systemImage: "checklist").font(.headline)
+                    Spacer()
+                    Text("\(state.selectedAlbums.count)/\(state.albums.count)")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("All") { state.selectAllAlbums() }.controlSize(.small).buttonStyle(.borderless)
+                    Button("None") { state.selectNoAlbums() }.controlSize(.small).buttonStyle(.borderless)
+                }
+                ForEach(state.albums) { album in
+                    let on = state.selectedAlbumIDs.contains(album.id)
+                    HStack {
+                        Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                        Text(album.name).lineLimit(1)
+                        Spacer()
+                        Text("\(album.trackCount)").font(.caption).foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { state.toggleAlbumSelection(album) }
+                    .padding(.vertical, 3)
+                }
+            }
+        }
     }
 
     private var connectHelp: some View {

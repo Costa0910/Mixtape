@@ -25,6 +25,18 @@ final class AppState: ObservableObject {
 
     // Library
     @Published var albums: [AlbumFolder] = []
+    @Published var selectedAlbumIDs: Set<String> = []
+
+    var selectedAlbums: [AlbumFolder] {
+        let sel = albums.filter { selectedAlbumIDs.contains($0.id) }
+        return sel.isEmpty ? albums : sel
+    }
+    func toggleAlbumSelection(_ album: AlbumFolder) {
+        if selectedAlbumIDs.contains(album.id) { selectedAlbumIDs.remove(album.id) }
+        else { selectedAlbumIDs.insert(album.id) }
+    }
+    func selectAllAlbums() { selectedAlbumIDs = Set(albums.map(\.id)) }
+    func selectNoAlbums() { selectedAlbumIDs = [] }
 
     private var processing = false
 
@@ -52,6 +64,12 @@ final class AppState: ObservableObject {
     }
 
     func clearFinished() { jobs.removeAll { $0.status.isFinished } }
+
+    func retry(_ job: DownloadJob) {
+        jobs.removeAll { $0.id == job.id }
+        enqueue(url: job.url, format: job.format, bitrate: job.bitrate,
+                skipVlogs: job.skipVlogs, customAlbum: job.customAlbum)
+    }
 
     private func processNext() {
         guard !processing else { return }
@@ -105,6 +123,7 @@ final class AppState: ObservableObject {
             job.status = .done
             job.detail = "\(job.trackCount) track(s) saved"
             scanLibrary()
+            Notifier.notify(title: "Download complete", body: "\(album) · \(job.trackCount) track(s)")
             if settings.autoTransfer, let phone = selectedPhone { transfer(to: phone) }
         } catch is CancellationError {
             job.status = .cancelled
@@ -129,7 +148,12 @@ final class AppState: ObservableObject {
                 }
             }
         }
+        let oldIDs = Set(albums.map(\.id))
         albums = found.sorted { $0.name < $1.name }
+        let ids = Set(albums.map(\.id))
+        let brandNew = ids.subtracting(oldIDs)
+        selectedAlbumIDs = selectedAlbumIDs.intersection(ids).union(brandNew)
+        if selectedAlbumIDs.isEmpty && oldIDs.isEmpty { selectedAlbumIDs = ids }
     }
 
     func deleteAlbum(_ album: AlbumFolder) {
@@ -138,7 +162,45 @@ final class AppState: ObservableObject {
         scanLibrary()
     }
 
+    func tracks(in album: AlbumFolder) -> [TrackFile] {
+        let fm = FileManager.default
+        let files = (try? fm.contentsOfDirectory(at: album.url, includingPropertiesForKeys: nil))?
+            .filter { ["m4a", "mp3", "opus", "ogg"].contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+        return files.enumerated().map { i, url in
+            var name = url.deletingPathExtension().lastPathComponent
+            if let r = name.range(of: #"^\d+\s*-\s*"#, options: .regularExpression) {
+                name.removeSubrange(r)
+            }
+            return TrackFile(url: url, index: i + 1, title: name)
+        }
+    }
+
+    func deleteTrack(_ track: TrackFile, in album: AlbumFolder) {
+        Player.shared.stop()
+        try? FileManager.default.removeItem(at: track.url)
+        if settings.makePlaylists { try? Organizer.writePlaylists(libraryRoot: settings.libraryURL) }
+        scanLibrary()
+    }
+
     func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+
+    // MARK: Maintenance
+
+    @Published var ytdlpUpdateStatus = ""
+    func updateYtDlp() {
+        guard let exe = BinaryLocator.url(for: .ytdlp) else { ytdlpUpdateStatus = "yt-dlp not found"; return }
+        ytdlpUpdateStatus = "Updating…"
+        Task {
+            do {
+                let out = try await ProcessRunner.capture(exe, ["-U"])
+                let last = out.split(separator: "\n").last.map(String.init) ?? "Up to date"
+                self.ytdlpUpdateStatus = last
+            } catch {
+                self.ytdlpUpdateStatus = "Update failed (bundled builds are read-only)."
+            }
+        }
+    }
 
     // MARK: Devices
 
@@ -160,15 +222,16 @@ final class AppState: ObservableObject {
             do {
                 switch phone.kind {
                 case .android:
-                    try await Transfer.pushAndroid(libraryRoot: settings.libraryURL, phone: phone) { frac, detail in
+                    try await Transfer.pushAndroid(libraryRoot: settings.libraryURL,
+                                                   albums: selectedAlbums, phone: phone) { frac, detail in
                         Task { @MainActor in
                             if frac >= 0 { self.transferProgress = frac }
                             self.transferStatus = detail
                         }
                     }
-                    self.transferStatus = "✓ Transferred to \(phone.name)."
+                    self.transferStatus = "✓ Transferred \(selectedAlbums.count) album(s) to \(phone.name)."
                 case .iphone:
-                    self.transferStatus = try await Transfer.prepareIPhone(libraryRoot: settings.libraryURL)
+                    self.transferStatus = try await Transfer.prepareIPhone(albums: selectedAlbums)
                 }
             } catch {
                 self.transferStatus = "Transfer failed: \(error.localizedDescription)"
