@@ -4,6 +4,10 @@ A native macOS app that snags audio and video from the web and turns it into org
 
 Built with SwiftUI. Wraps `yt-dlp` + `ffmpeg` + `adb` so you never touch the terminal. Works with YouTube, SoundCloud, Vimeo, and [many more](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
+## Download
+
+Get the latest **signed & notarized** build from **[Releases](https://github.com/Costa0910/Snag/releases/latest)** — download the `.dmg`, drag **Snag** into **Applications**, and open it with a normal double-click. Requires **macOS 14+ on Apple Silicon**.
+
 ## Features
 
 - **Music, podcasts, or video** — pick a kind per download: **Music** (album folders, tags, track numbers, playlists), **Audio / Podcast** (keeps the channel as the artist, no music-specific renaming), or **Video** (MP4 up to 1080p, to watch offline in your default player).
