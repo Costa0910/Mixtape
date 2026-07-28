@@ -37,6 +37,7 @@ struct DownloadView: View {
             .padding(22)
         }
         .onAppear {
+            kind = settings.defaultKind
             format = settings.defaultFormat
             bitrate = settings.mp3Bitrate
             skipVlogs = settings.skipVlogs

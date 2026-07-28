@@ -67,27 +67,35 @@ struct Transfer {
                             onProgress: @escaping (Double, String) -> Void) async throws {
         guard let adb = BinaryLocator.url(for: .adb) else { throw RunError.notFound("adb") }
         let rootName = libraryRoot.lastPathComponent
-        let destBase = "/sdcard/Music/\(rootName)"
-        _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", "mkdir", "-p", destBase])
+        // audio → Music, video → Movies (so each shows in the right phone app)
+        let musicBase = "/sdcard/Music/\(rootName)"
+        let movieBase = "/sdcard/Movies/\(rootName)"
+        let hasAudio = albums.contains { !$0.isVideo }
+        let hasVideo = albums.contains { $0.isVideo }
+        if hasAudio { _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", "mkdir", "-p", musicBase]) }
+        if hasVideo { _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", "mkdir", "-p", movieBase]) }
 
         let total = max(albums.count, 1)
         for (i, album) in albums.enumerated() {
-            for try await line in ProcessRunner.stream(adb, ["-s", phone.id, "push", album.url.path, destBase + "/"]) {
+            let base = album.isVideo ? movieBase : musicBase
+            for try await line in ProcessRunner.stream(adb, ["-s", phone.id, "push", album.url.path, base + "/"]) {
                 if let r = line.range(of: #"(\d+)%"#, options: .regularExpression) {
                     let pct = (Double(line[r].dropLast()) ?? 0) / 100.0
                     onProgress((Double(i) + pct) / Double(total), "Copying \(album.name)…")
                 }
             }
         }
-        // include the playlist files (best-effort)
-        if let m3us = try? FileManager.default.contentsOfDirectory(at: libraryRoot, includingPropertiesForKeys: nil) {
+        // playlists go with the audio (best-effort)
+        if hasAudio, let m3us = try? FileManager.default.contentsOfDirectory(at: libraryRoot, includingPropertiesForKeys: nil) {
             for pl in m3us where pl.pathExtension == "m3u8" {
-                _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "push", pl.path, destBase + "/"])
+                _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "push", pl.path, musicBase + "/"])
             }
         }
-        // force a metadata scan so players see the tracks (sets is_music/duration)
-        let scan = "find '\(destBase)' -name '*.m4a' -o -name '*.mp3' -o -name '*.opus' | while read f; do am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://$f\" >/dev/null 2>&1; done; echo scanned"
-        _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", scan])
+        // force a media scan so players see the new files (sets is_music/duration)
+        for base in [hasAudio ? musicBase : nil, hasVideo ? movieBase : nil].compactMap({ $0 }) {
+            let scan = "find '\(base)' -type f | while read f; do am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://$f\" >/dev/null 2>&1; done; echo scanned"
+            _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", scan])
+        }
     }
 
     // MARK: iPhone — assisted (Apple blocks full automation)
@@ -103,9 +111,11 @@ struct Transfer {
             throw RunError.exit(1, "Couldn't find the Music auto-import folder. Open the Music app once, then retry.")
         }
         var count = 0
+        var skippedVideo = 0
         for album in albums {
             let files = (try? fm.contentsOfDirectory(at: album.url, includingPropertiesForKeys: nil)) ?? []
-            for f in files where ["m4a", "mp3", "opus"].contains(f.pathExtension.lowercased()) {
+            for f in files where Media.isMedia(f) {
+                guard Media.isAudio(f) else { skippedVideo += 1; continue }
                 let dest = autoAdd.appendingPathComponent(f.lastPathComponent)
                 try? fm.removeItem(at: dest)
                 try fm.copyItem(at: f, to: dest)
@@ -113,6 +123,10 @@ struct Transfer {
             }
         }
         _ = try? await run("/usr/bin/open", ["-a", "Music"])
-        return "Imported \(count) tracks into the Music app. Now open Finder → your iPhone → Music tab → tick “Sync music” → Sync."
+        var msg = "Imported \(count) audio track(s) into the Music app. Now open Finder → your iPhone → Music tab → tick “Sync music” → Sync."
+        if skippedVideo > 0 {
+            msg += "\n\(skippedVideo) video file(s) were skipped — iPhone doesn't take video via Music. Use Finder → your iPhone → Files → an app like VLC to copy those."
+        }
+        return msg
     }
 }

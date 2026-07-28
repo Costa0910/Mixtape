@@ -113,6 +113,15 @@ struct AlbumTile: View {
                     }.padding(8)
                 }
             }
+            .overlay(alignment: .topLeading) {
+                if album.isVideo {
+                    Label("Video", systemImage: "film.fill")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .foregroundStyle(.white).padding(8)
+                }
+            }
             .contentShape(Rectangle())
             .onTapGesture(perform: onOpen)
 

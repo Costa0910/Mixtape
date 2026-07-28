@@ -14,6 +14,9 @@ struct SettingsView: View {
 
                 Form {
                     Section("Downloads") {
+                        Picker("Default kind", selection: $settings.defaultKind) {
+                            ForEach(MediaKind.allCases) { Text($0.label).tag($0) }
+                        }
                         Picker("Default format", selection: $settings.defaultFormat) {
                             ForEach(AudioFormat.allCases) { Text($0.display).tag($0) }
                         }

@@ -68,6 +68,8 @@ struct DevicesView: View {
                     HStack {
                         Image(systemName: on ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                        Image(systemName: album.isVideo ? "film" : "music.note")
+                            .font(.caption).foregroundStyle(.secondary)
                         Text(album.name).lineLimit(1)
                         Spacer()
                         Text("\(album.trackCount)").font(.caption).foregroundStyle(.secondary)
@@ -76,6 +78,8 @@ struct DevicesView: View {
                     .onTapGesture { state.toggleAlbumSelection(album) }
                     .padding(.vertical, 3)
                 }
+                Text("On Android, audio goes to Music and video to Movies.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }

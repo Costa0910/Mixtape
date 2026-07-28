@@ -36,6 +36,7 @@ final class SettingsStore: ObservableObject {
     private let d = UserDefaults.standard
 
     @Published var hasOnboarded: Bool { didSet { d.set(hasOnboarded, forKey: "hasOnboarded") } }
+    @Published var defaultKind: MediaKind { didSet { d.set(defaultKind.rawValue, forKey: "defaultKind") } }
     @Published var defaultFormat: AudioFormat { didSet { d.set(defaultFormat.rawValue, forKey: "defaultFormat") } }
     @Published var mp3Bitrate: String { didSet { d.set(mp3Bitrate, forKey: "mp3Bitrate") } }
     @Published var libraryPath: String { didSet { d.set(libraryPath, forKey: "libraryPath") } }
@@ -51,6 +52,7 @@ final class SettingsStore: ObservableObject {
 
     init() {
         hasOnboarded = d.bool(forKey: "hasOnboarded")
+        defaultKind = MediaKind(rawValue: d.string(forKey: "defaultKind") ?? "") ?? .music
         defaultFormat = AudioFormat(rawValue: d.string(forKey: "defaultFormat") ?? "") ?? .m4a
         mp3Bitrate = d.string(forKey: "mp3Bitrate") ?? "320"
         libraryPath = d.string(forKey: "libraryPath")

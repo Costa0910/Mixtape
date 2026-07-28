@@ -7,6 +7,7 @@ struct AlbumFolder: Identifiable, Hashable {
     let url: URL
     let name: String
     let trackCount: Int
+    let isVideo: Bool
 }
 
 @MainActor
@@ -146,7 +147,9 @@ final class AppState: ObservableObject {
                 let tracks = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
                     .filter { Media.isMedia($0) } ?? []
                 if !tracks.isEmpty {
-                    found.append(AlbumFolder(url: dir, name: dir.lastPathComponent, trackCount: tracks.count))
+                    let isVideo = tracks.contains { !Media.isAudio($0) }
+                    found.append(AlbumFolder(url: dir, name: dir.lastPathComponent,
+                                             trackCount: tracks.count, isVideo: isVideo))
                 }
             }
         }
