@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct AlbumDetailView: View {
     let album: AlbumFolder
@@ -75,11 +76,15 @@ struct TrackRow: View {
 
     private var isCurrent: Bool { player.currentURL == track.url }
     private var playing: Bool { isCurrent && player.isPlaying }
+    private var isVideo: Bool { !Media.isAudio(track.url) }
+    private var iconName: String {
+        isVideo ? "play.rectangle.fill" : (playing ? "pause.circle.fill" : "play.circle.fill")
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            Button { player.toggle(track.url) } label: {
-                Image(systemName: playing ? "pause.circle.fill" : "play.circle.fill")
+            Button { open() } label: {
+                Image(systemName: iconName)
                     .font(.title2)
                     .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             }.buttonStyle(.plain)
@@ -99,5 +104,10 @@ struct TrackRow: View {
         .background(isCurrent ? AnyShapeStyle(.tint.opacity(0.10)) : AnyShapeStyle(.clear),
                     in: RoundedRectangle(cornerRadius: 8))
         .onHover { hovering = $0 }
+    }
+
+    private func open() {
+        if isVideo { NSWorkspace.shared.open(track.url) }
+        else { player.toggle(track.url) }
     }
 }

@@ -1,11 +1,12 @@
 # 🎵 Mixtape
 
-A native macOS app that turns a YouTube URL into an organized music library on your phone — download, tag, and transfer, all from one clean window.
+A native macOS app that turns a link into organized, offline media on your Mac and phone — download, tag, and transfer, all from one clean window. Music is the hero, but it also handles **podcasts/talks** and **video**.
 
-Built with SwiftUI. Wraps `yt-dlp` + `ffmpeg` + `adb` so you never touch the terminal.
+Built with SwiftUI. Wraps `yt-dlp` + `ffmpeg` + `adb` so you never touch the terminal. Works with YouTube, SoundCloud, Vimeo, and [many more](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
 ## Features
 
+- **Music, podcasts, or video** — pick a kind per download: **Music** (album folders, tags, track numbers, playlists), **Audio / Podcast** (keeps the channel as the artist, no music-specific renaming), or **Video** (MP4 up to 1080p, to watch offline in your default player).
 - **Guided onboarding** — first-run flow that welcomes you, checks the engine tools, and sets your library location.
 - **Sidebar app** — Download, Library, Devices, and Settings, not just one window.
 - **Download queue** — paste (or **drag-and-drop**) a YouTube video/playlist URL and it **auto-previews** the track list (with auto-skip of non-music "vlogs"). Queue multiple downloads with live per-job progress, retry failed ones, and get a **macOS notification** when each finishes.

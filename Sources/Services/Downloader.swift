@@ -49,8 +49,10 @@ struct Downloader {
     // Download audio into <libraryRoot>/<album>/. Returns that album folder URL.
     static func download(url: String,
                          album: String,
+                         kind: MediaKind,
                          format: AudioFormat,
                          mp3Bitrate: String,
+                         videoQuality: String,
                          skipVlogs: Bool,
                          libraryRoot: URL,
                          padding: Int = 3,
@@ -61,11 +63,21 @@ struct Downloader {
         try FileManager.default.createDirectory(at: albumDir, withIntermediateDirectories: true)
 
         var args: [String] = []
-        if format.reencodes {
-            args += ["-f", "bestaudio/best", "-x", "--audio-format", format == .best ? "best" : format.rawValue]
-            if format == .mp3 { args += ["--audio-quality", mp3Bitrate] }
-        } else {
-            args += ["-f", "bestaudio[ext=m4a]/bestaudio"]
+        switch kind {
+        case .video:
+            if videoQuality == "best" {
+                args += ["-f", "bv*+ba/b"]
+            } else {
+                args += ["-f", "bv*[height<=\(videoQuality)]+ba/b[height<=\(videoQuality)]"]
+            }
+            args += ["--merge-output-format", "mp4"]
+        case .music, .audio:
+            if format.reencodes {
+                args += ["-f", "bestaudio/best", "-x", "--audio-format", format == .best ? "best" : format.rawValue]
+                if format == .mp3 { args += ["--audio-quality", mp3Bitrate] }
+            } else {
+                args += ["-f", "bestaudio[ext=m4a]/bestaudio"]
+            }
         }
         args += [
             "--embed-thumbnail", "--embed-metadata",

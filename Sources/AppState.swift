@@ -48,10 +48,10 @@ final class AppState: ObservableObject {
 
     // MARK: Queue
 
-    func enqueue(url: String, format: AudioFormat, bitrate: String,
-                 skipVlogs: Bool, customAlbum: String?) {
-        let job = DownloadJob(url: url, format: format, bitrate: bitrate,
-                              skipVlogs: skipVlogs, customAlbum: customAlbum)
+    func enqueue(url: String, kind: MediaKind, format: AudioFormat, bitrate: String,
+                 videoQuality: String, skipVlogs: Bool, customAlbum: String?) {
+        let job = DownloadJob(url: url, kind: kind, format: format, bitrate: bitrate,
+                              videoQuality: videoQuality, skipVlogs: skipVlogs, customAlbum: customAlbum)
         jobs.insert(job, at: 0)
         processNext()
     }
@@ -67,8 +67,8 @@ final class AppState: ObservableObject {
 
     func retry(_ job: DownloadJob) {
         jobs.removeAll { $0.id == job.id }
-        enqueue(url: job.url, format: job.format, bitrate: job.bitrate,
-                skipVlogs: job.skipVlogs, customAlbum: job.customAlbum)
+        enqueue(url: job.url, kind: job.kind, format: job.format, bitrate: job.bitrate,
+                videoQuality: job.videoQuality, skipVlogs: job.skipVlogs, customAlbum: job.customAlbum)
     }
 
     private func processNext() {
@@ -91,8 +91,8 @@ final class AppState: ObservableObject {
             // 2) download
             job.status = .downloading
             let albumDir = try await Downloader.download(
-                url: job.url, album: album, format: job.format, mp3Bitrate: job.bitrate,
-                skipVlogs: job.skipVlogs, libraryRoot: settings.libraryURL,
+                url: job.url, album: album, kind: job.kind, format: job.format, mp3Bitrate: job.bitrate,
+                videoQuality: job.videoQuality, skipVlogs: job.skipVlogs, libraryRoot: settings.libraryURL,
                 padding: settings.trackPadding
             ) { p in
                 Task { @MainActor in
@@ -108,14 +108,16 @@ final class AppState: ObservableObject {
             }
             if Task.isCancelled { return }
 
-            // 3) organize
-            job.status = .organizing
-            job.detail = "Tagging…"
-            try await Organizer.tagAlbum(albumDir, album: album,
-                                         genre: settings.genre.isEmpty ? nil : settings.genre) { frac, name in
-                Task { @MainActor in job.progress = frac; job.detail = "Tagging \(name)" }
+            // 3) organize — music-style tagging only applies to the Music kind
+            if job.kind == .music {
+                job.status = .organizing
+                job.detail = "Tagging…"
+                try await Organizer.tagAlbum(albumDir, album: album,
+                                             genre: settings.genre.isEmpty ? nil : settings.genre) { frac, name in
+                    Task { @MainActor in job.progress = frac; job.detail = "Tagging \(name)" }
+                }
             }
-            if settings.makePlaylists {
+            if job.kind != .video && settings.makePlaylists {
                 try Organizer.writePlaylists(libraryRoot: settings.libraryURL)
             }
             job.albumDir = albumDir
@@ -142,7 +144,7 @@ final class AppState: ObservableObject {
         if let dirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) {
             for dir in dirs where (try? dir.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
                 let tracks = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
-                    .filter { ["m4a", "mp3", "opus", "ogg"].contains($0.pathExtension.lowercased()) } ?? []
+                    .filter { Media.isMedia($0) } ?? []
                 if !tracks.isEmpty {
                     found.append(AlbumFolder(url: dir, name: dir.lastPathComponent, trackCount: tracks.count))
                 }
@@ -165,7 +167,7 @@ final class AppState: ObservableObject {
     func tracks(in album: AlbumFolder) -> [TrackFile] {
         let fm = FileManager.default
         let files = (try? fm.contentsOfDirectory(at: album.url, includingPropertiesForKeys: nil))?
-            .filter { ["m4a", "mp3", "opus", "ogg"].contains($0.pathExtension.lowercased()) }
+            .filter { Media.isMedia($0) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
         return files.enumerated().map { i, url in
             var name = url.deletingPathExtension().lastPathComponent

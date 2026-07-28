@@ -7,8 +7,10 @@ struct DownloadView: View {
     @EnvironmentObject var settings: SettingsStore
 
     @State private var url = ""
+    @State private var kind: MediaKind = .music
     @State private var format: AudioFormat = .m4a
     @State private var bitrate = "320"
+    @State private var videoQuality = "1080"
     @State private var skipVlogs = true
     @State private var customAlbum = ""
 
@@ -22,7 +24,7 @@ struct DownloadView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ScreenHeader(title: "Download",
-                             subtitle: "Paste a YouTube video or playlist link",
+                             subtitle: "Paste a link — YouTube, SoundCloud, Vimeo & more",
                              systemImage: "arrow.down.circle")
 
                 if !state.missingTools.isEmpty { MissingToolsBanner(tools: state.missingTools) }
@@ -46,7 +48,7 @@ struct DownloadView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
                     Image(systemName: "link").foregroundStyle(.secondary)
-                    TextField("https://youtube.com/…", text: $url)
+                    TextField("Paste a link — YouTube, SoundCloud, Vimeo…", text: $url)
                         .textFieldStyle(.plain).font(.system(size: 14))
                         .onSubmit(analyze)
                     Button {
@@ -62,16 +64,30 @@ struct DownloadView: View {
                 .onChange(of: url) { _, newValue in scheduleAnalyze(newValue) }
                 .onDrop(of: [.url, .text, .plainText], isTargeted: $dropTargeted) { handleDrop($0) }
 
+                Picker("", selection: $kind) {
+                    ForEach(MediaKind.allCases) { Label($0.label, systemImage: $0.icon).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden()
+
                 HStack(spacing: 14) {
-                    Picker("", selection: $format) {
-                        ForEach(AudioFormat.allCases) { Text($0.display).tag($0) }
-                    }.labelsHidden().frame(maxWidth: 260)
-                    if format == .mp3 {
-                        Picker("", selection: $bitrate) {
-                            ForEach(["320", "256", "192", "128"], id: \.self) { Text("\($0)k").tag($0) }
-                        }.labelsHidden().frame(width: 92)
+                    if kind.isAudio {
+                        Picker("", selection: $format) {
+                            ForEach(AudioFormat.allCases) { Text($0.display).tag($0) }
+                        }.labelsHidden().frame(maxWidth: 260)
+                        if format == .mp3 {
+                            Picker("", selection: $bitrate) {
+                                ForEach(["320", "256", "192", "128"], id: \.self) { Text("\($0)k").tag($0) }
+                            }.labelsHidden().frame(width: 92)
+                        }
+                    } else {
+                        Picker("", selection: $videoQuality) {
+                            Text("1080p").tag("1080")
+                            Text("720p").tag("720")
+                            Text("480p").tag("480")
+                            Text("Best").tag("best")
+                        }.labelsHidden().frame(width: 110)
+                        Text("MP4 video").font(.caption).foregroundStyle(.secondary)
                     }
-                    Toggle("Skip vlogs", isOn: $skipVlogs)
+                    if kind == .music { Toggle("Skip vlogs", isOn: $skipVlogs) }
                     Spacer()
                 }
 
@@ -136,7 +152,8 @@ struct DownloadView: View {
 
     private func addToQueue() {
         let album = (settings.albumSource == .custom && !customAlbum.isEmpty) ? customAlbum : nil
-        state.enqueue(url: url, format: format, bitrate: bitrate, skipVlogs: skipVlogs, customAlbum: album)
+        state.enqueue(url: url, kind: kind, format: format, bitrate: bitrate,
+                      videoQuality: videoQuality, skipVlogs: kind == .music && skipVlogs, customAlbum: album)
         url = ""; analysis = nil; customAlbum = ""
     }
 

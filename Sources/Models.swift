@@ -1,5 +1,38 @@
 import Foundation
 
+// What kind of thing the user is downloading — changes how it's fetched & organized.
+enum MediaKind: String, CaseIterable, Identifiable {
+    case music   // audio, organized as albums with track tags
+    case audio   // spoken audio (podcast/talk/audiobook) — keep channel as artist
+    case video   // the actual video, to watch offline
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .music: return "Music"
+        case .audio: return "Audio / Podcast"
+        case .video: return "Video"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .music: return "music.note"
+        case .audio: return "waveform"
+        case .video: return "film"
+        }
+    }
+    var isAudio: Bool { self != .video }
+}
+
+// File-extension groups shared across the app.
+enum Media {
+    static let audio: Set<String> = ["m4a", "mp3", "opus", "ogg", "wav", "flac", "aac"]
+    static let video: Set<String> = ["mp4", "mkv", "webm", "mov", "m4v"]
+    static var all: Set<String> { audio.union(video) }
+    static func isAudio(_ url: URL) -> Bool { audio.contains(url.pathExtension.lowercased()) }
+    static func isMedia(_ url: URL) -> Bool { all.contains(url.pathExtension.lowercased()) }
+}
+
 // Output audio format the user can pick.
 enum AudioFormat: String, CaseIterable, Identifiable {
     case m4a   // keep original AAC, no re-encode (best quality/speed)
@@ -119,8 +152,10 @@ enum JobStatus: Equatable {
 final class DownloadJob: ObservableObject, Identifiable {
     let id = UUID()
     let url: String
+    let kind: MediaKind
     let format: AudioFormat
     let bitrate: String
+    let videoQuality: String
     let skipVlogs: Bool
     var customAlbum: String?
 
@@ -132,10 +167,13 @@ final class DownloadJob: ObservableObject, Identifiable {
     var albumDir: URL?
     var task: Task<Void, Never>?
 
-    init(url: String, format: AudioFormat, bitrate: String, skipVlogs: Bool, customAlbum: String?) {
+    init(url: String, kind: MediaKind, format: AudioFormat, bitrate: String,
+         videoQuality: String, skipVlogs: Bool, customAlbum: String?) {
         self.url = url
+        self.kind = kind
         self.format = format
         self.bitrate = bitrate
+        self.videoQuality = videoQuality
         self.skipVlogs = skipVlogs
         self.customAlbum = customAlbum
         self.title = customAlbum ?? url

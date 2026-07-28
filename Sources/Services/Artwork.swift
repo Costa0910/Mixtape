@@ -10,7 +10,7 @@ actor ArtworkStore {
         guard let ffmpeg = await MainActor.run(body: { BinaryLocator.url(for: .ffmpeg) }) else { return nil }
         let fm = FileManager.default
         guard let first = (try? fm.contentsOfDirectory(at: album.url, includingPropertiesForKeys: nil))?
-            .filter({ ["m4a", "mp3", "opus", "ogg"].contains($0.pathExtension.lowercased()) })
+            .filter({ Media.isMedia($0) })
             .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
             .first else { return nil }
 

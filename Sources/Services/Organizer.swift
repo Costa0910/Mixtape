@@ -22,7 +22,7 @@ struct Organizer {
                          onProgress: @escaping (Double, String) -> Void) async throws {
         let fm = FileManager.default
         let files = (try? fm.contentsOfDirectory(at: albumDir, includingPropertiesForKeys: nil))?
-            .filter { ["m4a", "mp3", "opus", "ogg"].contains($0.pathExtension.lowercased()) }
+            .filter { Media.audio.contains($0.pathExtension.lowercased()) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
         guard !files.isEmpty else { return }
 
@@ -59,7 +59,7 @@ struct Organizer {
         var allLines = ["#EXTM3U"]
         for album in albums {
             let tracks = (try? fm.contentsOfDirectory(at: album, includingPropertiesForKeys: nil))?
-                .filter { ["m4a", "mp3", "opus", "ogg"].contains($0.pathExtension.lowercased()) }
+                .filter { Media.audio.contains($0.pathExtension.lowercased()) }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
             guard !tracks.isEmpty else { continue }
 
