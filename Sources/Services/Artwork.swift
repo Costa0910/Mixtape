@@ -14,7 +14,7 @@ actor ArtworkStore {
             .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
             .first else { return nil }
 
-        let out = fm.temporaryDirectory.appendingPathComponent("mixtape-art-\(abs(album.id.hashValue)).png")
+        let out = fm.temporaryDirectory.appendingPathComponent("snag-art-\(abs(album.id.hashValue)).png")
         let args = ["-v", "error", "-y", "-i", first.path, "-an", "-map", "0:v", "-frames:v", "1", out.path]
         _ = try? await ProcessRunner.capture(ffmpeg, args)
         guard let img = NSImage(contentsOf: out) else { return nil }

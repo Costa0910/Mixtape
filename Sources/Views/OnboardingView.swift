@@ -36,15 +36,15 @@ struct OnboardingView: View {
 
     private var welcome: some View {
         VStack(spacing: 18) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 56, weight: .bold)).foregroundStyle(.white)
+            Image(systemName: "tray.and.arrow.down.fill")
+                .font(.system(size: 52, weight: .bold)).foregroundStyle(.white)
                 .frame(width: 116, height: 116)
                 .background(LinearGradient(colors: [settings.accent.color, settings.accent.color.opacity(0.6)],
                                            startPoint: .top, endPoint: .bottom),
                             in: RoundedRectangle(cornerRadius: 28))
                 .shadow(color: settings.accent.color.opacity(0.4), radius: 20, y: 10)
-            Text("Welcome to Mixtape").font(.system(size: 30, weight: .bold))
-            Text("Download music from YouTube, organize it beautifully,\nand send it straight to your phone.")
+            Text("Welcome to Snag").font(.system(size: 30, weight: .bold))
+            Text("Download audio & video from the web, organize it,\nand send it straight to your phone.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary).font(.title3)
         }.padding(40)
     }
@@ -52,7 +52,7 @@ struct OnboardingView: View {
     private var how: some View {
         VStack(alignment: .leading, spacing: 22) {
             Text("How it works").font(.system(size: 26, weight: .bold))
-            featureRow("link", "Paste a link", "A YouTube video or an entire playlist — Mixtape figures out the tracks.")
+            featureRow("link", "Paste a link", "A video or an entire playlist — Snag figures out the tracks.")
             featureRow("wand.and.stars", "Organized automatically", "Album folders, clean tags, embedded cover art, and playlist files.")
             featureRow("iphone.and.arrow.forward", "Onto your phone", "One-click to Android; guided import for iPhone.")
         }.frame(maxWidth: 520).padding(40)
@@ -61,7 +61,7 @@ struct OnboardingView: View {
     private var tools: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Engine check").font(.system(size: 26, weight: .bold))
-            Text("Mixtape uses a few bundled tools. Distributed builds include them; if you're running from source, install or fetch them.")
+            Text("Snag uses a few bundled tools. Distributed builds include them; if you're running from source, install or fetch them.")
                 .foregroundStyle(.secondary)
             VStack(spacing: 10) {
                 toolStatus(.ytdlp); toolStatus(.ffmpeg); toolStatus(.adb)

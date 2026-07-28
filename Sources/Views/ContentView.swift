@@ -78,14 +78,14 @@ struct SidebarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 18, weight: .bold))
+                Image(systemName: "tray.and.arrow.down.fill")
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 34, height: 34)
                     .background(LinearGradient(colors: [settings.accent.color, settings.accent.color.opacity(0.6)],
                                                startPoint: .top, endPoint: .bottom),
                                 in: RoundedRectangle(cornerRadius: 9))
-                Text("Mixtape").font(.system(size: 17, weight: .bold))
+                Text("Snag").font(.system(size: 17, weight: .bold))
             }
             .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 12)
 

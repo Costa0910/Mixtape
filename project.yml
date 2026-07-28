@@ -1,4 +1,4 @@
-name: Mixtape
+name: Snag
 options:
   bundleIdPrefix: com.costa
   deploymentTarget:
@@ -9,13 +9,13 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    PRODUCT_NAME: Mixtape
+    PRODUCT_NAME: Snag
     ENABLE_HARDENED_RUNTIME: NO
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGNING_ALLOWED: "NO"
 targets:
-  Mixtape:
+  Snag:
     type: application
     platform: macOS
     sources:
@@ -31,12 +31,12 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
-        CFBundleName: Mixtape
-        CFBundleDisplayName: Mixtape
+        CFBundleName: Snag
+        CFBundleDisplayName: Snag
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
-        LSApplicationCategoryType: public.app-category.music
+        LSApplicationCategoryType: public.app-category.utilities
     entitlements:
-      path: Sources/Mixtape.entitlements
+      path: Sources/Snag.entitlements
       properties:
         com.apple.security.app-sandbox: false

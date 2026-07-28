@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MixtapeApp: App {
+struct SnagApp: App {
     @StateObject private var settings: SettingsStore
     @StateObject private var state: AppState
 

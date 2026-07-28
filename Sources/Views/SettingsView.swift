@@ -81,9 +81,9 @@ struct SettingsView: View {
                     }
 
                     Section("About") {
-                        LabeledContent("Mixtape", value: "v0.1")
-                        Link("github.com/Costa0910/Mixtape",
-                             destination: URL(string: "https://github.com/Costa0910/Mixtape")!)
+                        LabeledContent("Snag", value: "v0.1")
+                        Link("github.com/Costa0910/Snag",
+                             destination: URL(string: "https://github.com/Costa0910/Snag")!)
                     }
                 }
                 .formStyle(.grouped)

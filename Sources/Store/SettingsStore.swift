@@ -57,7 +57,7 @@ final class SettingsStore: ObservableObject {
         mp3Bitrate = d.string(forKey: "mp3Bitrate") ?? "320"
         libraryPath = d.string(forKey: "libraryPath")
             ?? (FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent("Music/Mixtape").path)
+                    .appendingPathComponent("Music/Snag").path)
         skipVlogs = d.object(forKey: "skipVlogs") as? Bool ?? true
         makePlaylists = d.object(forKey: "makePlaylists") as? Bool ?? true
         albumSource = AlbumSource(rawValue: d.string(forKey: "albumSource") ?? "") ?? .playlistTitle

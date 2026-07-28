@@ -1,6 +1,6 @@
-# 🎵 Mixtape
+# 📥 Snag
 
-A native macOS app that turns a link into organized, offline media on your Mac and phone — download, tag, and transfer, all from one clean window. Music is the hero, but it also handles **podcasts/talks** and **video**.
+A native macOS app that snags audio and video from the web and turns it into organized, offline media on your Mac and phone — download, tag, and transfer, all from one clean window. Great for **music**, but it also handles **podcasts/talks** and **video**.
 
 Built with SwiftUI. Wraps `yt-dlp` + `ffmpeg` + `adb` so you never touch the terminal. Works with YouTube, SoundCloud, Vimeo, and [many more](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
@@ -26,11 +26,11 @@ Built with SwiftUI. Wraps `yt-dlp` + `ffmpeg` + `adb` so you never touch the ter
 ## Build from source
 
 ```bash
-git clone https://github.com/Costa0910/Mixtape.git
-cd Mixtape
+git clone https://github.com/Costa0910/Snag.git
+cd Snag
 ./Scripts/fetch-tools.sh     # downloads yt-dlp, adb; relocates ffmpeg (self-contained)
-xcodegen generate            # creates Mixtape.xcodeproj
-open Mixtape.xcodeproj        # then press ▶ in Xcode
+xcodegen generate            # creates Snag.xcodeproj
+open Snag.xcodeproj           # then press ▶ in Xcode
 ```
 
 Prefer no bundling? Skip `fetch-tools.sh` and just `brew install yt-dlp ffmpeg android-platform-tools` — the app falls back to those automatically.

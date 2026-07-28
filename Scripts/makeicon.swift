@@ -26,9 +26,9 @@ func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
     return out
 }
 
-let glyphSize: CGFloat = 560
+let glyphSize: CGFloat = 520
 let cfg = NSImage.SymbolConfiguration(pointSize: glyphSize, weight: .semibold)
-if let base = NSImage(systemSymbolName: "music.note.list", accessibilityDescription: nil)?
+if let base = NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: nil)?
     .withSymbolConfiguration(cfg) {
     let white = tinted(base, .white)
     let s = white.size
