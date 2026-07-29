@@ -79,7 +79,14 @@ struct DevicesView: View {
                                 .font(.callout).foregroundStyle(.secondary)
                             Text(server.address).font(.title3.monospaced().weight(.semibold))
                                 .textSelection(.enabled)
-                            Text("Then tap any track to download it — works on iPhone and Android.")
+                            HStack(spacing: 6) {
+                                Text("PIN").font(.caption).foregroundStyle(.secondary)
+                                Text(server.pin).font(.title3.monospaced().weight(.bold))
+                                    .padding(.horizontal, 8).padding(.vertical, 2)
+                                    .background(.tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                                    .textSelection(.enabled)
+                            }
+                            Text("Enter the PIN once, then tap any track to download — iPhone & Android.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
