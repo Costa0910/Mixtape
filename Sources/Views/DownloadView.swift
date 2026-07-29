@@ -13,6 +13,7 @@ struct DownloadView: View {
     @State private var videoQuality = "1080"
     @State private var skipVlogs = true
     @State private var customAlbum = ""
+    @State private var genre = "Music"
 
     @State private var analysis: Analysis?
     @State private var analyzing = false
@@ -41,6 +42,7 @@ struct DownloadView: View {
             format = settings.defaultFormat
             bitrate = settings.mp3Bitrate
             skipVlogs = settings.skipVlogs
+            genre = settings.genre
         }
     }
 
@@ -95,6 +97,12 @@ struct DownloadView: View {
                 if settings.albumSource == .custom {
                     TextField("Album name (optional)", text: $customAlbum)
                         .textFieldStyle(.roundedBorder)
+                }
+                if kind.isAudio {
+                    HStack {
+                        Text("Genre").foregroundStyle(.secondary)
+                        TextField("Music", text: $genre).textFieldStyle(.roundedBorder)
+                    }
                 }
 
                 HStack(spacing: 10) {
@@ -159,6 +167,7 @@ struct DownloadView: View {
         cfg.bitrate = bitrate
         cfg.videoQuality = videoQuality
         cfg.skipVlogs = kind == .music && skipVlogs
+        if kind.isAudio, !genre.trimmingCharacters(in: .whitespaces).isEmpty { cfg.genre = genre }
         state.enqueue(url: url, config: cfg, customAlbum: album)
         url = ""; analysis = nil; customAlbum = ""
     }

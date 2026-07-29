@@ -66,12 +66,21 @@ struct SettingsView: View {
 
                     Section("Library & Transfer") {
                         HStack {
-                            Text("Location")
+                            Text("Library location")
                             Spacer()
                             Text(settings.libraryPath).foregroundStyle(.secondary)
                                 .lineLimit(1).truncationMode(.middle)
                             Button("Change…", action: pickFolder)
                         }
+                        HStack {
+                            Text("Phone folder")
+                            TextField("e.g. Snag (blank = straight into Music)", text: $settings.phoneFolder)
+                                .multilineTextAlignment(.trailing)
+                        }
+                        Text(settings.phoneFolder.trimmingCharacters(in: .whitespaces).isEmpty
+                             ? "Albums go directly into the phone's Music / Movies."
+                             : "Albums go into Music/\(settings.phoneFolder) and Movies/\(settings.phoneFolder). Playlists are added to /Playlists.")
+                            .font(.caption).foregroundStyle(.secondary)
                         Toggle("Auto-transfer to selected phone after download", isOn: $settings.autoTransfer)
                     }
 

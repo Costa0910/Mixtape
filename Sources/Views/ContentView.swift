@@ -1,5 +1,19 @@
 import SwiftUI
 
+// MARK: - Liquid Glass helpers
+
+extension View {
+    /// Frosted "Liquid Glass" surface — real glass on macOS 26, material fallback below.
+    @ViewBuilder
+    func glassSurface(_ cornerRadius: CGFloat = 16) -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius))
+        } else {
+            self.background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
+        }
+    }
+}
+
 // MARK: - Shared components
 
 struct Card<Content: View>: View {
@@ -9,8 +23,9 @@ struct Card<Content: View>: View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.06)))
+            .glassSurface(18)
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.08)))
+            .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
     }
 }
 
@@ -107,7 +122,7 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 9))
+            .glassSurface(9)
         }
         .padding(10)
     }

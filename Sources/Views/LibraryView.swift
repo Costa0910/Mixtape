@@ -34,7 +34,7 @@ struct LibraryView: View {
                         TextField("Search albums…", text: $search).textFieldStyle(.plain)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+                    .glassSurface(10)
                     .frame(maxWidth: 320)
 
                     LazyVGrid(columns: columns, spacing: 16) {
@@ -84,49 +84,54 @@ struct AlbumTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ZStack {
-                if let art {
-                    Image(nsImage: art).resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    LinearGradient(colors: [settings.accent.color.opacity(0.7), settings.accent.color.opacity(0.35)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Image(systemName: "music.note").font(.system(size: 34)).foregroundStyle(.white.opacity(0.85))
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)         // always a uniform square
+                .overlay {
+                    ZStack {
+                        if let art {
+                            Image(nsImage: art).resizable().scaledToFill()
+                        } else {
+                            LinearGradient(colors: [settings.accent.color.opacity(0.75), settings.accent.color.opacity(0.35)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                            Image(systemName: album.isVideo ? "film" : "music.note")
+                                .font(.system(size: 34)).foregroundStyle(.white.opacity(0.9))
+                        }
+                        if hovering { Color.black.opacity(0.28) }
+                    }
                 }
-                if hovering { Color.black.opacity(0.25) }
-            }
-            .frame(height: 170).frame(maxWidth: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay {
-                if hovering {
-                    Button { playFirst() } label: {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 44)).foregroundStyle(.white)
-                            .shadow(radius: 6)
-                    }.buttonStyle(.plain)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay {
+                    if hovering {
+                        Button { playFirst() } label: {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 46)).foregroundStyle(.white)
+                                .shadow(radius: 8)
+                        }.buttonStyle(.plain)
+                    }
                 }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if hovering {
-                    HStack(spacing: 6) {
-                        TileButton(icon: "folder") { state.reveal(album.url) }
-                        TileButton(icon: "trash") { state.deleteAlbum(album) }
-                    }.padding(8)
+                .overlay(alignment: .bottomTrailing) {
+                    if hovering {
+                        HStack(spacing: 6) {
+                            TileButton(icon: "folder") { state.reveal(album.url) }
+                            TileButton(icon: "trash") { state.deleteAlbum(album) }
+                        }.padding(8)
+                    }
                 }
-            }
-            .overlay(alignment: .topLeading) {
-                if album.isVideo {
-                    Label("Video", systemImage: "film.fill")
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(.black.opacity(0.55), in: Capsule())
-                        .foregroundStyle(.white).padding(8)
+                .overlay(alignment: .topLeading) {
+                    if album.isVideo {
+                        Label("Video", systemImage: "film.fill")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(.black.opacity(0.55), in: Capsule())
+                            .foregroundStyle(.white).padding(8)
+                    }
                 }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onOpen)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onOpen)
 
             Text(album.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-            Text("\(album.trackCount) tracks").font(.caption).foregroundStyle(.secondary)
+            Text("\(album.trackCount) \(album.isVideo ? "items" : "tracks")")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .scaleEffect(hovering ? 1.02 : 1)
         .animation(.snappy(duration: 0.15), value: hovering)

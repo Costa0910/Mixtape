@@ -164,6 +164,7 @@ struct JobConfig: Equatable {
     var numberTracks: Bool = true              // prefix "NN - "
     var trackPadding: Int = 3
     var resume: Bool = true                     // download-archive so retries skip done items
+    var genre: String = "Music"                // written to the genre tag (players group by it)
 }
 
 // One queued/active download.

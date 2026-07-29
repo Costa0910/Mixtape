@@ -22,7 +22,7 @@ struct DevicesView: View {
                             .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                         Spacer()
                     }
-                    .padding(12).background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .padding(12).glassSurface(12)
                 }
 
                 if state.albums.isEmpty {
@@ -113,7 +113,7 @@ struct DevicesView: View {
             }
             Spacer()
         }
-        .padding(14).background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .padding(14).glassSurface(12)
     }
 }
 

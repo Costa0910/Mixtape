@@ -79,18 +79,23 @@ struct Transfer {
 
     static func pushAndroid(libraryRoot: URL,
                             albums: [AlbumFolder],
+                            subfolder: String,
                             phone: Phone,
                             onProgress: @escaping (Double, String) -> Void) async throws {
         guard let adb = BinaryLocator.url(for: .adb) else { throw RunError.notFound("adb") }
-        let rootName = libraryRoot.lastPathComponent
+        let fm = FileManager.default
+        let sub = subfolder.trimmingCharacters(in: .whitespaces)
+        let suffix = sub.isEmpty ? "" : "/\(sub)"
         // audio → Music, video → Movies (so each shows in the right phone app)
-        let musicBase = "/sdcard/Music/\(rootName)"
-        let movieBase = "/sdcard/Movies/\(rootName)"
-        let hasAudio = albums.contains { !$0.isVideo }
-        let hasVideo = albums.contains { $0.isVideo }
-        if hasAudio { _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", "mkdir", "-p", musicBase]) }
-        if hasVideo { _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", "mkdir", "-p", movieBase]) }
+        let musicBase = "/sdcard/Music\(suffix)"
+        let movieBase = "/sdcard/Movies\(suffix)"
+        let playlistDir = "/sdcard/Playlists"
+        let audioAlbums = albums.filter { !$0.isVideo }
+        let videoAlbums = albums.filter { $0.isVideo }
+        if !audioAlbums.isEmpty { _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", "mkdir", "-p", musicBase]) }
+        if !videoAlbums.isEmpty { _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", "mkdir", "-p", movieBase]) }
 
+        // 1) copy the album folders
         let total = max(albums.count, 1)
         for (i, album) in albums.enumerated() {
             let base = album.isVideo ? movieBase : musicBase
@@ -101,14 +106,45 @@ struct Transfer {
                 }
             }
         }
-        // playlists go with the audio (best-effort)
-        if hasAudio, let m3us = try? FileManager.default.contentsOfDirectory(at: libraryRoot, includingPropertiesForKeys: nil) {
-            for pl in m3us where pl.pathExtension == "m3u8" {
-                _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "push", pl.path, musicBase + "/"])
+
+        // 2) build real playlists with ABSOLUTE on-device paths and push them
+        if !audioAlbums.isEmpty {
+            onProgress(-1, "Creating playlists…")
+            _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", "mkdir", "-p", playlistDir])
+            let tmp = fm.temporaryDirectory.appendingPathComponent("snag-pl-\(UUID().uuidString)")
+            try? fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+            let listName = sub.isEmpty ? "Snag" : sub
+            var allLines = ["#EXTM3U"]
+            for album in audioAlbums {
+                let phoneDir = "\(musicBase)/\(album.url.lastPathComponent)"
+                let tracks = ((try? fm.contentsOfDirectory(at: album.url, includingPropertiesForKeys: nil)) ?? [])
+                    .filter { Media.isAudio($0) }
+                    .sorted { $0.lastPathComponent < $1.lastPathComponent }
+                guard !tracks.isEmpty else { continue }
+                var lines = ["#EXTM3U"]
+                for t in tracks { let p = "\(phoneDir)/\(t.lastPathComponent)"; lines.append(p); allLines.append(p) }
+                let f = tmp.appendingPathComponent("\(Organizer.safeName(album.name)).m3u8")
+                try? lines.joined(separator: "\n").write(to: f, atomically: true, encoding: .utf8)
+                _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "push", f.path, playlistDir + "/"])
+                _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "push", f.path, musicBase + "/"])
             }
+            if allLines.count > 1 {
+                let allF = tmp.appendingPathComponent("\(listName) — All Music.m3u8")
+                try? allLines.joined(separator: "\n").write(to: allF, atomically: true, encoding: .utf8)
+                _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "push", allF.path, playlistDir + "/"])
+                _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "push", allF.path, musicBase + "/"])
+            }
+            try? fm.removeItem(at: tmp)
         }
-        // force a media scan so players see the new files (sets is_music/duration)
-        for base in [hasAudio ? musicBase : nil, hasVideo ? movieBase : nil].compactMap({ $0 }) {
+
+        // 3) media-scan everything so players index the tracks + playlists
+        onProgress(-1, "Refreshing phone library…")
+        let bases = [
+            audioAlbums.isEmpty ? nil : musicBase,
+            videoAlbums.isEmpty ? nil : movieBase,
+            audioAlbums.isEmpty ? nil : playlistDir,
+        ].compactMap { $0 }
+        for base in bases {
             let scan = "find '\(base)' -type f | while read f; do am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://$f\" >/dev/null 2>&1; done; echo scanned"
             _ = try? await ProcessRunner.capture(adb, ["-s", phone.id, "shell", scan])
         }

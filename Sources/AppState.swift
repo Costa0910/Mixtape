@@ -111,7 +111,7 @@ final class AppState: ObservableObject {
                 job.status = .organizing
                 job.detail = "Tagging…"
                 try? await Organizer.tagAlbum(albumDir, album: album,
-                                              genre: settings.genre.isEmpty ? nil : settings.genre) { frac, name in
+                                              genre: job.config.genre.isEmpty ? nil : job.config.genre) { frac, name in
                     Task { @MainActor in job.progress = frac; job.detail = "Tagging \(name)" }
                 }
             }
@@ -230,7 +230,8 @@ final class AppState: ObservableObject {
                 switch phone.kind {
                 case .android:
                     try await Transfer.pushAndroid(libraryRoot: settings.libraryURL,
-                                                   albums: selectedAlbums, phone: phone) { frac, detail in
+                                                   albums: selectedAlbums, subfolder: settings.phoneFolder,
+                                                   phone: phone) { frac, detail in
                         Task { @MainActor in
                             if frac >= 0 { self.transferProgress = frac }
                             self.transferStatus = detail

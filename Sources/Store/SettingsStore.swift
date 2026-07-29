@@ -62,6 +62,9 @@ final class SettingsStore: ObservableObject {
     @Published var embedThumbnail: Bool { didSet { d.set(embedThumbnail, forKey: "embedThumbnail") } }
     @Published var resumeDownloads: Bool { didSet { d.set(resumeDownloads, forKey: "resumeDownloads") } }
 
+    // Transfer: on-phone destination subfolder (empty = straight into Music/Movies)
+    @Published var phoneFolder: String { didSet { d.set(phoneFolder, forKey: "phoneFolder") } }
+
     var libraryURL: URL { URL(fileURLWithPath: (libraryPath as NSString).expandingTildeInPath) }
 
     // Build the per-download option snapshot for a given kind.
@@ -78,7 +81,8 @@ final class SettingsStore: ObservableObject {
             skipVlogs: skipVlogs,
             numberTracks: kind == .audio ? numberPodcastTracks : true,
             trackPadding: trackPadding,
-            resume: resumeDownloads
+            resume: resumeDownloads,
+            genre: genre
         )
     }
 
@@ -105,5 +109,6 @@ final class SettingsStore: ObservableObject {
         subtitleLang = d.string(forKey: "subtitleLang") ?? "en"
         embedThumbnail = d.object(forKey: "embedThumbnail") as? Bool ?? true
         resumeDownloads = d.object(forKey: "resumeDownloads") as? Bool ?? true
+        phoneFolder = d.string(forKey: "phoneFolder") ?? "Snag"
     }
 }
