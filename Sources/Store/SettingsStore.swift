@@ -61,9 +61,19 @@ final class SettingsStore: ObservableObject {
     // Shared
     @Published var embedThumbnail: Bool { didSet { d.set(embedThumbnail, forKey: "embedThumbnail") } }
     @Published var resumeDownloads: Bool { didSet { d.set(resumeDownloads, forKey: "resumeDownloads") } }
+    @Published var sponsorBlock: Bool { didSet { d.set(sponsorBlock, forKey: "sponsorBlock") } }
+    @Published var embedChapters: Bool { didSet { d.set(embedChapters, forKey: "embedChapters") } }
+    @Published var maxConcurrent: Int { didSet { d.set(maxConcurrent, forKey: "maxConcurrent") } }
 
     // Transfer: on-phone destination subfolder (empty = straight into Music/Movies)
     @Published var phoneFolder: String { didSet { d.set(phoneFolder, forKey: "phoneFolder") } }
+
+    // Maintenance
+    @Published var autoUpdateYtdlp: Bool { didSet { d.set(autoUpdateYtdlp, forKey: "autoUpdateYtdlp") } }
+    var lastYtdlpCheck: Double {
+        get { d.double(forKey: "lastYtdlpCheck") }
+        set { d.set(newValue, forKey: "lastYtdlpCheck") }
+    }
 
     var libraryURL: URL { URL(fileURLWithPath: (libraryPath as NSString).expandingTildeInPath) }
 
@@ -82,7 +92,9 @@ final class SettingsStore: ObservableObject {
             numberTracks: kind == .audio ? numberPodcastTracks : true,
             trackPadding: trackPadding,
             resume: resumeDownloads,
-            genre: genre
+            genre: genre,
+            sponsorBlock: sponsorBlock,
+            embedChapters: embedChapters
         )
     }
 
@@ -110,5 +122,9 @@ final class SettingsStore: ObservableObject {
         embedThumbnail = d.object(forKey: "embedThumbnail") as? Bool ?? true
         resumeDownloads = d.object(forKey: "resumeDownloads") as? Bool ?? true
         phoneFolder = d.string(forKey: "phoneFolder") ?? "Snag"
+        autoUpdateYtdlp = d.object(forKey: "autoUpdateYtdlp") as? Bool ?? true
+        sponsorBlock = d.object(forKey: "sponsorBlock") as? Bool ?? false
+        embedChapters = d.object(forKey: "embedChapters") as? Bool ?? false
+        maxConcurrent = d.object(forKey: "maxConcurrent") as? Int ?? 2
     }
 }

@@ -17,7 +17,9 @@ struct AlbumDetailView: View {
             Divider()
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(tracks) { track in TrackRow(track: track, album: album) }
+                    ForEach(Array(tracks.enumerated()), id: \.element.id) { pair in
+                        TrackRow(track: pair.element, tracks: tracks, position: pair.offset, album: album)
+                    }
                 }
                 .padding(12)
             }
@@ -30,7 +32,6 @@ struct AlbumDetailView: View {
             art = await ArtworkStore.shared.artwork(for: album)
             tracks = state.tracks(in: album)
         }
-        .onDisappear { player.stop() }
     }
 
     private var header: some View {
@@ -46,9 +47,15 @@ struct AlbumDetailView: View {
             .frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
                 Text(album.name).font(.title3.weight(.bold)).lineLimit(2)
-                Text("\(album.trackCount) tracks").foregroundStyle(.secondary).font(.callout)
+                Text("\(album.trackCount) \(album.isVideo ? "items" : "tracks")")
+                    .foregroundStyle(.secondary).font(.callout)
             }
             Spacer()
+            if !album.isVideo {
+                Button { player.play(tracks, startAt: 0, album: album.name) } label: {
+                    Label("Play", systemImage: "play.fill")
+                }.buttonStyle(.borderedProminent).disabled(tracks.isEmpty)
+            }
             Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.title2) }
                 .buttonStyle(.plain).foregroundStyle(.secondary)
         }
@@ -69,6 +76,8 @@ struct AlbumDetailView: View {
 
 struct TrackRow: View {
     let track: TrackFile
+    var tracks: [TrackFile] = []
+    var position: Int = 0
     let album: AlbumFolder
     @EnvironmentObject var state: AppState
     @EnvironmentObject var player: Player
@@ -107,7 +116,12 @@ struct TrackRow: View {
     }
 
     private func open() {
-        if isVideo { NSWorkspace.shared.open(track.url) }
-        else { player.toggle(track.url) }
+        if isVideo {
+            NSWorkspace.shared.open(track.url)
+        } else if isCurrent {
+            player.togglePlayPause()
+        } else {
+            player.play(tracks.isEmpty ? [track] : tracks, startAt: position, album: album.name)
+        }
     }
 }

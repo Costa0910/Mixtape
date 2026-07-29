@@ -2,18 +2,22 @@ import SwiftUI
 
 struct DevicesView: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject var server: WebServer
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     ScreenHeader(title: "Devices",
-                                 subtitle: "Send your library to a connected phone",
+                                 subtitle: "Send your library to a phone — USB or Wi-Fi",
                                  systemImage: "iphone.gen3")
                     Button { state.refreshPhones() } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }.controlSize(.large)
                 }
+
+                wirelessCard
 
                 if !state.adbAvailable {
                     HStack(spacing: 10) {
@@ -50,6 +54,42 @@ struct DevicesView: View {
             .padding(22)
         }
         .onAppear { state.refreshPhones() }
+    }
+
+    private var wirelessCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Wireless (any phone)", systemImage: "wifi").font(.headline)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { server.running },
+                        set: { $0 ? server.start(root: settings.libraryURL) : server.stop() }
+                    )).labelsHidden().toggleStyle(.switch)
+                }
+                if server.running, !server.address.isEmpty {
+                    HStack(alignment: .top, spacing: 16) {
+                        if let qr = WebServer.qrImage(server.address) {
+                            Image(nsImage: qr).interpolation(.none).resizable()
+                                .frame(width: 110, height: 110)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("On your phone (same Wi-Fi), scan the code or open:")
+                                .font(.callout).foregroundStyle(.secondary)
+                            Text(server.address).font(.title3.monospaced().weight(.semibold))
+                                .textSelection(.enabled)
+                            Text("Then tap any track to download it — works on iPhone and Android.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                } else {
+                    Text("Serve your library over Wi-Fi so any phone can download tracks in a browser — no USB, no Music sync.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     private var albumSelector: some View {

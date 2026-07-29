@@ -140,8 +140,9 @@ struct AlbumTile: View {
     }
 
     private func playFirst() {
-        guard let first = state.tracks(in: album).first else { return }
-        if Media.isAudio(first.url) { player.toggle(first.url) }
+        let tracks = state.tracks(in: album)
+        guard let first = tracks.first else { return }
+        if Media.isAudio(first.url) { player.play(tracks, startAt: 0, album: album.name) }
         else { NSWorkspace.shared.open(first.url) }
     }
 }

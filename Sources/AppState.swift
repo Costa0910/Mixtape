@@ -39,7 +39,7 @@ final class AppState: ObservableObject {
     func selectAllAlbums() { selectedAlbumIDs = Set(albums.map(\.id)) }
     func selectNoAlbums() { selectedAlbumIDs = [] }
 
-    private var processing = false
+    private var running = 0
 
     init(settings: SettingsStore) { self.settings = settings }
 
@@ -71,10 +71,12 @@ final class AppState: ObservableObject {
     }
 
     private func processNext() {
-        guard !processing else { return }
-        guard let job = jobs.last(where: { $0.status == .queued }) else { return }
-        processing = true
-        job.task = Task { await self.run(job); self.processing = false; self.processNext() }
+        let maxC = max(1, settings.maxConcurrent)
+        while running < maxC, let job = jobs.last(where: { $0.status == .queued }) {
+            running += 1
+            job.status = .analyzing   // claim synchronously so it isn't picked twice
+            job.task = Task { await self.run(job); self.running -= 1; self.processNext() }
+        }
     }
 
     private func run(_ job: DownloadJob) async {
@@ -196,17 +198,20 @@ final class AppState: ObservableObject {
 
     @Published var ytdlpUpdateStatus = ""
     func updateYtDlp() {
-        guard let exe = BinaryLocator.url(for: .ytdlp) else { ytdlpUpdateStatus = "yt-dlp not found"; return }
-        ytdlpUpdateStatus = "Updating…"
+        ytdlpUpdateStatus = "Checking…"
         Task {
-            do {
-                let out = try await ProcessRunner.capture(exe, ["-U"])
-                let last = out.split(separator: "\n").last.map(String.init) ?? "Up to date"
-                self.ytdlpUpdateStatus = last
-            } catch {
-                self.ytdlpUpdateStatus = "Update failed (bundled builds are read-only)."
-            }
+            self.ytdlpUpdateStatus = await Updater.updateYtdlp(force: true)
         }
+    }
+
+    // Silent weekly check so downloads don't break when YouTube changes.
+    func autoUpdateYtDlpIfDue() {
+        guard settings.autoUpdateYtdlp else { return }
+        let now = Date().timeIntervalSince1970
+        let week: Double = 7 * 24 * 3600
+        guard now - settings.lastYtdlpCheck > week else { return }
+        settings.lastYtdlpCheck = now
+        Task { _ = await Updater.updateYtdlp(force: false) }
     }
 
     // MARK: Devices

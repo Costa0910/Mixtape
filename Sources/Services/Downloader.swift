@@ -91,6 +91,10 @@ struct Downloader {
         if config.kind == .music && config.skipVlogs {
             args += ["--match-filters", "title!~=(?i)vlog"]
         }
+        if config.sponsorBlock { args += ["--sponsorblock-remove", "default"] }
+        if config.embedChapters { args += ["--embed-chapters"] }
+        let range = config.playlistItems.trimmingCharacters(in: .whitespaces)
+        if !range.isEmpty { args += ["--playlist-items", range] }
         let pad = max(1, min(config.trackPadding, 4))
         let prefix = config.numberTracks ? "%(playlist_index,autonumber)0\(pad)d - " : ""
         let template = albumDir.appendingPathComponent("\(prefix)%(title)s.%(ext)s").path

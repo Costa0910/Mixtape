@@ -14,6 +14,7 @@ struct DownloadView: View {
     @State private var skipVlogs = true
     @State private var customAlbum = ""
     @State private var genre = "Music"
+    @State private var playlistItems = ""
 
     @State private var analysis: Analysis?
     @State private var analyzing = false
@@ -43,6 +44,11 @@ struct DownloadView: View {
             bitrate = settings.mp3Bitrate
             skipVlogs = settings.skipVlogs
             genre = settings.genre
+            // auto-detect a link sitting in the clipboard
+            if url.isEmpty, let s = NSPasteboard.general.string(forType: .string) {
+                let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if t.hasPrefix("http"), t.count < 500 { url = t }
+            }
         }
     }
 
@@ -103,6 +109,11 @@ struct DownloadView: View {
                         Text("Genre").foregroundStyle(.secondary)
                         TextField("Music", text: $genre).textFieldStyle(.roundedBorder)
                     }
+                }
+                HStack {
+                    Text("Playlist items").foregroundStyle(.secondary)
+                    TextField("all — or e.g. 1-50, 3, 10-20", text: $playlistItems)
+                        .textFieldStyle(.roundedBorder)
                 }
 
                 HStack(spacing: 10) {
@@ -168,8 +179,15 @@ struct DownloadView: View {
         cfg.videoQuality = videoQuality
         cfg.skipVlogs = kind == .music && skipVlogs
         if kind.isAudio, !genre.trimmingCharacters(in: .whitespaces).isEmpty { cfg.genre = genre }
-        state.enqueue(url: url, config: cfg, customAlbum: album)
-        url = ""; analysis = nil; customAlbum = ""
+        cfg.playlistItems = playlistItems
+        // accept several links at once (newline- or space-separated)
+        let urls = url.split(whereSeparator: { $0 == "\n" || $0 == " " || $0 == "\t" })
+            .map(String.init).filter { $0.contains("http") }
+        let list = urls.isEmpty ? [url] : urls
+        for u in list {
+            state.enqueue(url: u, config: cfg, customAlbum: list.count == 1 ? album : nil)
+        }
+        url = ""; analysis = nil; customAlbum = ""; playlistItems = ""
     }
 
     private func scheduleAnalyze(_ value: String) {

@@ -65,6 +65,7 @@ struct StatusBadge: View {
 
 struct MainView: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var player: Player
 
     var body: some View {
         NavigationSplitView {
@@ -81,8 +82,49 @@ struct MainView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(.background)
+            .safeAreaInset(edge: .bottom) {
+                if player.currentURL != nil { MiniPlayerBar() }
+            }
         }
-        .onAppear { state.scanLibrary(); state.refreshPhones(); Notifier.requestAuth() }
+        .onAppear {
+            state.scanLibrary(); state.refreshPhones(); Notifier.requestAuth()
+            state.autoUpdateYtDlpIfDue()
+        }
+    }
+}
+
+struct MiniPlayerBar: View {
+    @EnvironmentObject var player: Player
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "music.note")
+                .font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(.tint, in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(player.nowPlaying.isEmpty ? "—" : player.nowPlaying)
+                    .font(.system(size: 13, weight: .medium)).lineLimit(1)
+                if !player.albumName.isEmpty {
+                    Text(player.albumName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer()
+            HStack(spacing: 18) {
+                Button { player.previous() } label: { Image(systemName: "backward.fill") }
+                    .disabled(!player.hasPrev)
+                Button { player.togglePlayPause() } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 16))
+                }
+                Button { player.next() } label: { Image(systemName: "forward.fill") }
+                    .disabled(!player.hasNext)
+                Button { player.stop() } label: { Image(systemName: "xmark") }
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain).font(.system(size: 14))
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 }
 

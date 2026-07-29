@@ -17,7 +17,11 @@ struct SettingsView: View {
                         Picker("Default kind", selection: $settings.defaultKind) {
                             ForEach(MediaKind.allCases) { Label($0.label, systemImage: $0.icon).tag($0) }
                         }
+                        Stepper("Simultaneous downloads: \(settings.maxConcurrent)",
+                                value: $settings.maxConcurrent, in: 1...5)
                         Toggle("Embed thumbnail / cover art", isOn: $settings.embedThumbnail)
+                        Toggle("Embed chapters", isOn: $settings.embedChapters)
+                        Toggle("Remove sponsor segments (SponsorBlock)", isOn: $settings.sponsorBlock)
                         Toggle("Resume interrupted downloads (skip already-downloaded)",
                                isOn: $settings.resumeDownloads)
                     }
@@ -99,16 +103,17 @@ struct SettingsView: View {
 
                     Section("Tools") {
                         toolRow(.ytdlp); toolRow(.ffmpeg); toolRow(.adb)
+                        Toggle("Keep yt-dlp updated automatically", isOn: $settings.autoUpdateYtdlp)
                         HStack {
                             Button { state.updateYtDlp() } label: {
-                                Label("Update yt-dlp", systemImage: "arrow.triangle.2.circlepath")
+                                Label("Update yt-dlp now", systemImage: "arrow.triangle.2.circlepath")
                             }
                             if !state.ytdlpUpdateStatus.isEmpty {
                                 Text(state.ytdlpUpdateStatus).font(.caption).foregroundStyle(.secondary)
                                     .lineLimit(1).truncationMode(.tail)
                             }
                         }
-                        Text("Bundle them with Scripts/fetch-tools.sh for a self-contained app.")
+                        Text("Updates download to Application Support (the bundled copy stays as a fallback).")
                             .font(.caption).foregroundStyle(.secondary)
                     }
 

@@ -4,6 +4,7 @@ import SwiftUI
 struct SnagApp: App {
     @StateObject private var settings: SettingsStore
     @StateObject private var state: AppState
+    @StateObject private var server = WebServer()
 
     init() {
         let s = SettingsStore()
@@ -17,6 +18,7 @@ struct SnagApp: App {
                 .environmentObject(state)
                 .environmentObject(settings)
                 .environmentObject(Player.shared)
+                .environmentObject(server)
                 .tint(settings.accent.color)
                 .frame(minWidth: 900, minHeight: 640)
         }

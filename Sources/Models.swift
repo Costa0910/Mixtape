@@ -165,6 +165,10 @@ struct JobConfig: Equatable {
     var trackPadding: Int = 3
     var resume: Bool = true                     // download-archive so retries skip done items
     var genre: String = "Music"                // written to the genre tag (players group by it)
+    // power options
+    var sponsorBlock: Bool = false             // remove sponsor segments
+    var embedChapters: Bool = false            // embed chapter markers
+    var playlistItems: String = ""             // e.g. "1-50" (blank = all)
 }
 
 // One queued/active download.

@@ -18,7 +18,18 @@ struct BinaryLocator {
         "/bin",
     ]
 
+    // Updated copies (e.g. yt-dlp) live here, outside the read-only signed bundle.
+    static var overrideDir: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Snag/bin", isDirectory: true)
+    }
+
     static func url(for tool: Tool) -> URL? {
+        // 0) an updated copy in Application Support wins (keeps yt-dlp fresh)
+        if let ov = overrideDir?.appendingPathComponent(tool.rawValue),
+           FileManager.default.isExecutableFile(atPath: ov.path) {
+            return ov
+        }
         // 1) bundled copy inside the app
         if let bundled = Bundle.main.url(forResource: "bin/\(tool.rawValue)", withExtension: nil),
            FileManager.default.isExecutableFile(atPath: bundled.path) {
