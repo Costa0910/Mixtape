@@ -13,22 +13,25 @@ struct SettingsView: View {
                              systemImage: "gearshape")
 
                 Form {
-                    Section("Downloads") {
+                    Section("General") {
                         Picker("Default kind", selection: $settings.defaultKind) {
-                            ForEach(MediaKind.allCases) { Text($0.label).tag($0) }
+                            ForEach(MediaKind.allCases) { Label($0.label, systemImage: $0.icon).tag($0) }
                         }
-                        Picker("Default format", selection: $settings.defaultFormat) {
+                        Toggle("Embed thumbnail / cover art", isOn: $settings.embedThumbnail)
+                        Toggle("Resume interrupted downloads (skip already-downloaded)",
+                               isOn: $settings.resumeDownloads)
+                    }
+
+                    Section {
+                        Picker("Format", selection: $settings.defaultFormat) {
                             ForEach(AudioFormat.allCases) { Text($0.display).tag($0) }
                         }
                         if settings.defaultFormat == .mp3 {
-                            Picker("MP3 bitrate", selection: $settings.mp3Bitrate) {
+                            Picker("Bitrate", selection: $settings.mp3Bitrate) {
                                 ForEach(["320", "256", "192", "128"], id: \.self) { Text("\($0) kbps").tag($0) }
                             }
                         }
-                        Toggle("Skip vlogs / non-music by default", isOn: $settings.skipVlogs)
-                    }
-
-                    Section("Organization") {
+                        Toggle("Skip vlogs / non-music", isOn: $settings.skipVlogs)
                         Picker("Album name from", selection: $settings.albumSource) {
                             ForEach(AlbumSource.allCases) { Text($0.label).tag($0) }
                         }
@@ -36,9 +39,32 @@ struct SettingsView: View {
                                 value: $settings.trackPadding, in: 1...4)
                         Toggle("Create .m3u8 playlists", isOn: $settings.makePlaylists)
                         TextField("Genre tag", text: $settings.genre)
-                    }
+                    } header: { Label("Music", systemImage: "music.note") }
 
-                    Section("Library") {
+                    Section {
+                        Picker("Format", selection: $settings.podcastFormat) {
+                            ForEach(AudioFormat.allCases) { Text($0.display).tag($0) }
+                        }
+                        Toggle("Number episodes (01 - , 02 - …)", isOn: $settings.numberPodcastTracks)
+                        Text("Keeps the channel as the artist — no album/Various-Artists tagging.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } header: { Label("Audio / Podcast", systemImage: "waveform") }
+
+                    Section {
+                        Picker("Max quality", selection: $settings.videoQuality) {
+                            Text("1080p").tag("1080"); Text("720p").tag("720")
+                            Text("480p").tag("480"); Text("Best available").tag("best")
+                        }
+                        Picker("Container", selection: $settings.videoContainer) {
+                            Text("MP4").tag("mp4"); Text("MKV").tag("mkv")
+                        }
+                        Toggle("Embed subtitles", isOn: $settings.embedSubtitles)
+                        if settings.embedSubtitles {
+                            TextField("Subtitle language(s)", text: $settings.subtitleLang)
+                        }
+                    } header: { Label("Video", systemImage: "film") }
+
+                    Section("Library & Transfer") {
                         HStack {
                             Text("Location")
                             Spacer()
@@ -46,9 +72,6 @@ struct SettingsView: View {
                                 .lineLimit(1).truncationMode(.middle)
                             Button("Change…", action: pickFolder)
                         }
-                    }
-
-                    Section("Transfer") {
                         Toggle("Auto-transfer to selected phone after download", isOn: $settings.autoTransfer)
                     }
 
@@ -81,7 +104,7 @@ struct SettingsView: View {
                     }
 
                     Section("About") {
-                        LabeledContent("Snag", value: "v0.1")
+                        LabeledContent("Snag", value: "v0.1.1")
                         Link("github.com/Costa0910/Snag",
                              destination: URL(string: "https://github.com/Costa0910/Snag")!)
                     }

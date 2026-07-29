@@ -121,8 +121,6 @@ struct PhoneCard: View {
     let phone: Phone
     @EnvironmentObject var state: AppState
 
-    private var isUnauthorized: Bool { phone.name.contains("Allow") }
-
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
@@ -136,21 +134,29 @@ struct PhoneCard: View {
                         Text(label).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button {
-                        state.transfer(to: phone)
-                    } label: {
-                        Label(phone.kind == .iphone ? "Prepare for iPhone" : "Transfer",
-                              systemImage: "square.and.arrow.up.fill")
+                    if phone.needsSetup {
+                        Button { state.refreshPhones() } label: {
+                            Label("Refresh", systemImage: "arrow.clockwise")
+                        }.controlSize(.large)
+                    } else {
+                        Button {
+                            state.transfer(to: phone)
+                        } label: {
+                            Label(phone.kind == .iphone ? "Prepare for iPhone" : "Transfer",
+                                  systemImage: "square.and.arrow.up.fill")
+                        }
+                        .controlSize(.large).buttonStyle(.borderedProminent)
+                        .disabled(state.transferring || state.albums.isEmpty)
                     }
-                    .controlSize(.large).buttonStyle(.borderedProminent)
-                    .disabled(state.transferring || state.albums.isEmpty || isUnauthorized)
                 }
                 if state.transferring {
                     ProgressView(value: max(0, min(state.transferProgress, 1)))
                 }
-                if isUnauthorized {
-                    Text("Tap “Allow USB debugging” on the phone, then hit Refresh.")
-                        .font(.caption).foregroundStyle(.orange)
+                if phone.needsSetup && !phone.hint.isEmpty {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.caption)
+                        Text(phone.hint).font(.caption).foregroundStyle(.orange)
+                    }
                 }
             }
         }

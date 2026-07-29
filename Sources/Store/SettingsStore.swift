@@ -48,7 +48,39 @@ final class SettingsStore: ObservableObject {
     @Published var autoTransfer: Bool { didSet { d.set(autoTransfer, forKey: "autoTransfer") } }
     @Published var accent: AccentTheme { didSet { d.set(accent.rawValue, forKey: "accent") } }
 
+    // Audio / Podcast
+    @Published var podcastFormat: AudioFormat { didSet { d.set(podcastFormat.rawValue, forKey: "podcastFormat") } }
+    @Published var numberPodcastTracks: Bool { didSet { d.set(numberPodcastTracks, forKey: "numberPodcastTracks") } }
+
+    // Video
+    @Published var videoQuality: String { didSet { d.set(videoQuality, forKey: "videoQuality") } }
+    @Published var videoContainer: String { didSet { d.set(videoContainer, forKey: "videoContainer") } }
+    @Published var embedSubtitles: Bool { didSet { d.set(embedSubtitles, forKey: "embedSubtitles") } }
+    @Published var subtitleLang: String { didSet { d.set(subtitleLang, forKey: "subtitleLang") } }
+
+    // Shared
+    @Published var embedThumbnail: Bool { didSet { d.set(embedThumbnail, forKey: "embedThumbnail") } }
+    @Published var resumeDownloads: Bool { didSet { d.set(resumeDownloads, forKey: "resumeDownloads") } }
+
     var libraryURL: URL { URL(fileURLWithPath: (libraryPath as NSString).expandingTildeInPath) }
+
+    // Build the per-download option snapshot for a given kind.
+    func config(for kind: MediaKind) -> JobConfig {
+        JobConfig(
+            kind: kind,
+            format: kind == .audio ? podcastFormat : defaultFormat,
+            bitrate: mp3Bitrate,
+            videoQuality: videoQuality,
+            videoContainer: videoContainer,
+            embedSubtitles: embedSubtitles,
+            subtitleLang: subtitleLang,
+            embedThumbnail: embedThumbnail,
+            skipVlogs: skipVlogs,
+            numberTracks: kind == .audio ? numberPodcastTracks : true,
+            trackPadding: trackPadding,
+            resume: resumeDownloads
+        )
+    }
 
     init() {
         hasOnboarded = d.bool(forKey: "hasOnboarded")
@@ -65,5 +97,13 @@ final class SettingsStore: ObservableObject {
         genre = d.string(forKey: "genre") ?? "Music"
         autoTransfer = d.object(forKey: "autoTransfer") as? Bool ?? false
         accent = AccentTheme(rawValue: d.string(forKey: "accent") ?? "") ?? .indigo
+        podcastFormat = AudioFormat(rawValue: d.string(forKey: "podcastFormat") ?? "") ?? .m4a
+        numberPodcastTracks = d.object(forKey: "numberPodcastTracks") as? Bool ?? false
+        videoQuality = d.string(forKey: "videoQuality") ?? "1080"
+        videoContainer = d.string(forKey: "videoContainer") ?? "mp4"
+        embedSubtitles = d.object(forKey: "embedSubtitles") as? Bool ?? false
+        subtitleLang = d.string(forKey: "subtitleLang") ?? "en"
+        embedThumbnail = d.object(forKey: "embedThumbnail") as? Bool ?? true
+        resumeDownloads = d.object(forKey: "resumeDownloads") as? Bool ?? true
     }
 }

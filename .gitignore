@@ -1,6 +1,10 @@
 # Build output
 build/
+build-release/
 DerivedData/
+*.dmg
+*.zip
+*.app/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 

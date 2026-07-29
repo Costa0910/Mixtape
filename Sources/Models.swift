@@ -147,16 +147,31 @@ enum JobStatus: Equatable {
     }
 }
 
+// A snapshot of every option a download uses, captured when it's queued.
+struct JobConfig: Equatable {
+    var kind: MediaKind = .music
+    // audio (music + podcast)
+    var format: AudioFormat = .m4a
+    var bitrate: String = "320"
+    // video
+    var videoQuality: String = "1080"          // 480/720/1080/best
+    var videoContainer: String = "mp4"         // mp4/mkv
+    var embedSubtitles: Bool = false
+    var subtitleLang: String = "en"
+    // shared
+    var embedThumbnail: Bool = true
+    var skipVlogs: Bool = true                 // music only
+    var numberTracks: Bool = true              // prefix "NN - "
+    var trackPadding: Int = 3
+    var resume: Bool = true                     // download-archive so retries skip done items
+}
+
 // One queued/active download.
 @MainActor
 final class DownloadJob: ObservableObject, Identifiable {
     let id = UUID()
     let url: String
-    let kind: MediaKind
-    let format: AudioFormat
-    let bitrate: String
-    let videoQuality: String
-    let skipVlogs: Bool
+    let config: JobConfig
     var customAlbum: String?
 
     @Published var title: String
@@ -167,17 +182,21 @@ final class DownloadJob: ObservableObject, Identifiable {
     var albumDir: URL?
     var task: Task<Void, Never>?
 
-    init(url: String, kind: MediaKind, format: AudioFormat, bitrate: String,
-         videoQuality: String, skipVlogs: Bool, customAlbum: String?) {
+    var kind: MediaKind { config.kind }        // convenience passthrough
+
+    init(url: String, config: JobConfig, customAlbum: String?) {
         self.url = url
-        self.kind = kind
-        self.format = format
-        self.bitrate = bitrate
-        self.videoQuality = videoQuality
-        self.skipVlogs = skipVlogs
+        self.config = config
         self.customAlbum = customAlbum
         self.title = customAlbum ?? url
     }
+}
+
+// Result of a download run.
+struct DownloadOutcome {
+    let albumDir: URL
+    let filesPresent: Int
+    let errors: Int
 }
 
 // A single audio file inside an album.
@@ -195,6 +214,8 @@ struct Phone: Identifiable, Hashable {
     let kind: Kind
     let name: String
     let freeBytes: Int64?
+    var needsSetup: Bool = false    // connected but not ready (debugging off / not trusted)
+    var hint: String = ""           // what the user should do
 
     var freeText: String {
         guard let f = freeBytes else { return "" }

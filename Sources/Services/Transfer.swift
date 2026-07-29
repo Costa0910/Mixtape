@@ -8,39 +8,44 @@ struct Transfer {
 
     // MARK: Detection
 
+    // Known Android phone USB vendor IDs (Samsung, Google, Xiaomi, OnePlus,
+    // Huawei, Motorola, LG, Sony, ZTE, HTC, Oppo/Realme, Vivo, Nothing…).
+    private static let androidVendorIDs = [
+        "0x04e8", "0x18d1", "0x2717", "0x2a70", "0x12d1", "0x22b8", "0x1004",
+        "0x0fce", "0x19d2", "0x0bb4", "0x22d9", "0x2d95", "0x2c7c",
+    ]
+
     static func detectPhones() async -> [Phone] {
         var phones: [Phone] = []
-        // Android via adb
+
+        // Android via adb (make sure the server is up first so we get clean output)
         if let adb = BinaryLocator.url(for: .adb) {
+            _ = try? await ProcessRunner.capture(adb, ["start-server"])
             if let out = try? await ProcessRunner.capture(adb, ["devices"]) {
-                for line in out.split(separator: "\n").dropFirst() {
-                    let cols: [String] = String(line)
-                        .components(separatedBy: .whitespaces)
-                        .filter { !$0.isEmpty }
+                for line in out.split(separator: "\n") {
+                    let cols = String(line).components(separatedBy: .whitespaces).filter { !$0.isEmpty }
                     guard cols.count >= 2 else { continue }
-                    let serial = cols[0], state = cols[1]
-                    guard state == "device" else {
-                        if state == "unauthorized" {
-                            phones.append(Phone(id: serial, kind: .android,
-                                                name: "Android (tap Allow on phone)", freeBytes: nil))
-                        }
-                        continue
-                    }
-                    let model = (try? await ProcessRunner.capture(adb, ["-s", serial, "shell", "getprop", "ro.product.model"]))?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Android device"
-                    var free: Int64? = nil
-                    if let df = try? await ProcessRunner.capture(adb, ["-s", serial, "shell", "df", "/sdcard"]) {
-                        // last line, "Avail" column (in 1K blocks)
-                        if let last = df.split(separator: "\n").last {
+                    let serial = cols[0], deviceState = cols[1]
+                    if deviceState == "unauthorized" {
+                        phones.append(Phone(id: serial, kind: .android, name: "Android phone",
+                                            freeBytes: nil, needsSetup: true,
+                                            hint: "Tap “Allow USB debugging” on the phone, then Refresh."))
+                    } else if deviceState == "device" {
+                        let model = (try? await ProcessRunner.capture(adb, ["-s", serial, "shell", "getprop", "ro.product.model"]))?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Android device"
+                        var free: Int64? = nil
+                        if let df = try? await ProcessRunner.capture(adb, ["-s", serial, "shell", "df", "/sdcard"]),
+                           let last = df.split(separator: "\n").last {
                             let parts = last.split(whereSeparator: { $0 == " " }).map(String.init)
                             if parts.count >= 4, let kb = Int64(parts[3]) { free = kb * 1024 }
                         }
+                        phones.append(Phone(id: serial, kind: .android, name: model, freeBytes: free))
                     }
-                    phones.append(Phone(id: serial, kind: .android, name: model, freeBytes: free))
                 }
             }
         }
-        // iPhone via system_profiler (presence only; iOS blocks deeper access)
+
+        // USB scan: find iPhones, and Android phones that adb can't reach yet.
         if let usb = try? await run("/usr/sbin/system_profiler", ["SPUSBDataType"]) {
             let lines = usb.split(separator: "\n").map(String.init)
             for (i, l) in lines.enumerated() where l.contains("iPhone") || l.contains("iPad") {
@@ -51,9 +56,20 @@ struct Transfer {
                     break
                 }
                 if !phones.contains(where: { $0.id == serial }) {
-                    phones.append(Phone(id: serial, kind: .iphone, name: name, freeBytes: nil))
+                    phones.append(Phone(id: serial, kind: .iphone, name: name, freeBytes: nil,
+                                        needsSetup: false, hint: ""))
                 }
                 break
+            }
+            // Android connected over USB but adb sees nothing → debugging is off.
+            if !phones.contains(where: { $0.kind == .android }) {
+                let looksAndroid = androidVendorIDs.contains(where: { usb.contains($0) })
+                    || usb.localizedCaseInsensitiveContains("Android")
+                if looksAndroid {
+                    phones.append(Phone(id: "android-usb", kind: .android, name: "Android phone",
+                                        freeBytes: nil, needsSetup: true,
+                                        hint: "Connected over USB. On the phone: set USB to File Transfer and turn on USB debugging (Developer options), then Refresh."))
+                }
             }
         }
         return phones

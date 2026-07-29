@@ -49,10 +49,8 @@ final class AppState: ObservableObject {
 
     // MARK: Queue
 
-    func enqueue(url: String, kind: MediaKind, format: AudioFormat, bitrate: String,
-                 videoQuality: String, skipVlogs: Bool, customAlbum: String?) {
-        let job = DownloadJob(url: url, kind: kind, format: format, bitrate: bitrate,
-                              videoQuality: videoQuality, skipVlogs: skipVlogs, customAlbum: customAlbum)
+    func enqueue(url: String, config: JobConfig, customAlbum: String?) {
+        let job = DownloadJob(url: url, config: config, customAlbum: customAlbum)
         jobs.insert(job, at: 0)
         processNext()
     }
@@ -68,8 +66,8 @@ final class AppState: ObservableObject {
 
     func retry(_ job: DownloadJob) {
         jobs.removeAll { $0.id == job.id }
-        enqueue(url: job.url, kind: job.kind, format: job.format, bitrate: job.bitrate,
-                videoQuality: job.videoQuality, skipVlogs: job.skipVlogs, customAlbum: job.customAlbum)
+        // same album name → same folder + archive, so it resumes where it stopped
+        enqueue(url: job.url, config: job.config, customAlbum: job.customAlbum)
     }
 
     private func processNext() {
@@ -89,18 +87,16 @@ final class AppState: ObservableObject {
             job.title = album
             job.trackCount = analysis.entries.count
 
-            // 2) download
+            // 2) download (resilient — continues past failures, resumes on retry)
             job.status = .downloading
-            let albumDir = try await Downloader.download(
-                url: job.url, album: album, kind: job.kind, format: job.format, mp3Bitrate: job.bitrate,
-                videoQuality: job.videoQuality, skipVlogs: job.skipVlogs, libraryRoot: settings.libraryURL,
-                padding: settings.trackPadding
+            let outcome = try await Downloader.download(
+                url: job.url, album: album, config: job.config, libraryRoot: settings.libraryURL
             ) { p in
                 Task { @MainActor in
                     if p.itemTotal > 0 {
                         let base = Double(max(p.itemIndex - 1, 0)) / Double(p.itemTotal)
                         job.progress = base + (p.filePercent / 100) / Double(p.itemTotal)
-                        job.detail = "Track \(p.itemIndex)/\(p.itemTotal) · \(p.currentTitle)"
+                        job.detail = "Item \(p.itemIndex)/\(p.itemTotal) · \(p.currentTitle)"
                     } else {
                         job.progress = p.filePercent / 100
                         if !p.currentTitle.isEmpty { job.detail = p.currentTitle }
@@ -108,25 +104,31 @@ final class AppState: ObservableObject {
                 }
             }
             if Task.isCancelled { return }
+            let albumDir = outcome.albumDir
 
             // 3) organize — music-style tagging only applies to the Music kind
             if job.kind == .music {
                 job.status = .organizing
                 job.detail = "Tagging…"
-                try await Organizer.tagAlbum(albumDir, album: album,
-                                             genre: settings.genre.isEmpty ? nil : settings.genre) { frac, name in
+                try? await Organizer.tagAlbum(albumDir, album: album,
+                                              genre: settings.genre.isEmpty ? nil : settings.genre) { frac, name in
                     Task { @MainActor in job.progress = frac; job.detail = "Tagging \(name)" }
                 }
             }
             if job.kind != .video && settings.makePlaylists {
-                try Organizer.writePlaylists(libraryRoot: settings.libraryURL)
+                try? Organizer.writePlaylists(libraryRoot: settings.libraryURL)
             }
             job.albumDir = albumDir
             job.progress = 1
+            // report a clear summary: what came through, what didn't
+            let summary = outcome.errors > 0
+                ? "\(outcome.filesPresent) file(s) ready · \(outcome.errors) failed"
+                : "\(outcome.filesPresent) file(s) saved"
             job.status = .done
-            job.detail = "\(job.trackCount) track(s) saved"
+            job.detail = summary
             scanLibrary()
-            Notifier.notify(title: "Download complete", body: "\(album) · \(job.trackCount) track(s)")
+            Notifier.notify(title: outcome.errors > 0 ? "Finished with some errors" : "Download complete",
+                            body: "\(album) · \(summary)")
             if settings.autoTransfer, let phone = selectedPhone { transfer(to: phone) }
         } catch is CancellationError {
             job.status = .cancelled

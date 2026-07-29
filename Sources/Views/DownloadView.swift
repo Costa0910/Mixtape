@@ -153,8 +153,13 @@ struct DownloadView: View {
 
     private func addToQueue() {
         let album = (settings.albumSource == .custom && !customAlbum.isEmpty) ? customAlbum : nil
-        state.enqueue(url: url, kind: kind, format: format, bitrate: bitrate,
-                      videoQuality: videoQuality, skipVlogs: kind == .music && skipVlogs, customAlbum: album)
+        // start from the saved defaults for this kind, then apply the picker overrides
+        var cfg = settings.config(for: kind)
+        cfg.format = format
+        cfg.bitrate = bitrate
+        cfg.videoQuality = videoQuality
+        cfg.skipVlogs = kind == .music && skipVlogs
+        state.enqueue(url: url, config: cfg, customAlbum: album)
         url = ""; analysis = nil; customAlbum = ""
     }
 
