@@ -213,6 +213,8 @@ final class WebServer: ObservableObject {
             .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
             .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
         var rows = ""
+        var jsItems: [String] = []   // playable audio tracks for the in-page player
+        var gi = 0
         for album in albums {
             let tracks = (try? fm.contentsOfDirectory(at: album, includingPropertiesForKeys: nil))?
                 .filter { Media.isMedia($0) }
@@ -222,20 +224,56 @@ final class WebServer: ObservableObject {
             for t in tracks {
                 let rel = "\(album.lastPathComponent)/\(t.lastPathComponent)"
                 let enc = rel.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? rel
-                rows += "<li><a href=\"/f/\(enc)\" download>\(esc(t.lastPathComponent))</a></li>"
+                let name = t.deletingPathExtension().lastPathComponent
+                if Media.isAudio(t) {
+                    jsItems.append("{t:\"\(jsEsc(name))\",u:\"/f/\(enc)\"}")
+                    rows += "<li><button class=pl data-i=\(gi)>▶</button> "
+                        + "<span class=nm data-i=\(gi)>\(esc(name))</span> "
+                        + "<a class=dl href=\"/f/\(enc)\" download>⬇︎</a></li>"
+                    gi += 1
+                } else {
+                    rows += "<li>🎬 <a href=\"/f/\(enc)\" download>\(esc(name))</a></li>"
+                }
             }
             rows += "</ul>"
         }
         if rows.isEmpty { rows = "<p>Library is empty.</p>" }
+        let js = "[" + jsItems.joined(separator: ",") + "]"
         return """
         <!doctype html><html><head><meta charset=utf-8>
         <meta name=viewport content='width=device-width,initial-scale=1'><title>Snag</title><style>
-        body{font-family:-apple-system,system-ui,sans-serif;max-width:760px;margin:0 auto;padding:18px;background:#0f1115;color:#e8e8ea}
+        body{font-family:-apple-system,system-ui,sans-serif;max-width:760px;margin:0 auto;padding:18px 18px 120px;background:#0f1115;color:#e8e8ea}
         a{color:#8aa4ff;text-decoration:none}a:active{opacity:.6}
-        h1{font-size:22px}h2{font-size:15px;margin:22px 0 6px;color:#aab}li{margin:8px 0}
-        </style></head><body><h1>📥 Snag library</h1>
-        <p>Tap a track to download it to this device.</p>\(rows)</body></html>
+        h1{font-size:22px}h2{font-size:15px;margin:22px 0 6px;color:#aab}
+        ul{list-style:none;padding:0} li{margin:2px 0;padding:8px 6px;border-radius:8px;display:flex;align-items:center;gap:10px}
+        li.cur{background:#1c2030}
+        .pl{background:#2a2f3d;color:#fff;border:0;border-radius:8px;width:34px;height:34px;font-size:13px}
+        .nm{flex:1} .dl{opacity:.6;font-size:18px}
+        #bar{position:fixed;left:0;right:0;bottom:0;background:#181b22;border-top:1px solid #2a2f3d;padding:8px 14px}
+        #np{font-size:13px;color:#cdd;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        audio{width:100%}
+        .tip{color:#889;font-size:12px;margin:8px 0 16px}
+        </style></head><body>
+        <h1>📥 Snag library</h1>
+        <p class=tip>Tap ▶ to <b>play here</b> (streams from your Mac — nothing to find). Tap ⬇︎ to download the file (on iPhone it saves to <b>Files → Downloads</b>).</p>
+        \(rows)
+        <div id=bar><div id=np>—</div><audio id=au controls playsinline></audio></div>
+        <script>
+        const T=\(js);const au=document.getElementById('au');const np=document.getElementById('np');let cur=-1;
+        function mark(){document.querySelectorAll('li.cur').forEach(e=>e.classList.remove('cur'));
+          const b=document.querySelector('.pl[data-i="'+cur+'"]');if(b)b.closest('li').classList.add('cur');}
+        function playAt(i){if(i<0||i>=T.length)return;cur=i;au.src=T[i].u;au.play();np.textContent=T[i].t;mark();
+          document.querySelectorAll('.pl').forEach(b=>b.textContent='▶');
+          const b=document.querySelector('.pl[data-i="'+i+'"]');if(b)b.textContent='⏸';}
+        document.querySelectorAll('.pl').forEach(b=>b.addEventListener('click',()=>{const i=+b.dataset.i;
+          if(i===cur){if(au.paused){au.play();b.textContent='⏸';}else{au.pause();b.textContent='▶';}}else playAt(i);}));
+        au.addEventListener('ended',()=>{if(cur+1<T.length)playAt(cur+1);});
+        </script></body></html>
         """
+    }
+
+    private func jsEsc(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     // MARK: parsing helpers
