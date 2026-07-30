@@ -2,6 +2,7 @@ import AVFoundation
 import MediaPlayer
 import UIKit
 import SwiftUI
+import SwiftData
 
 @MainActor
 final class PlayerEngine: ObservableObject {
@@ -12,6 +13,7 @@ final class PlayerEngine: ObservableObject {
     @Published var current: Track?
     @Published var isPlaying = false
     @Published var shuffle = false
+    @Published var autoplay = true
     @Published var repeatMode: RepeatMode = .off
     @Published var elapsed: Double = 0
     @Published var duration: Double = 0
@@ -49,6 +51,14 @@ final class PlayerEngine: ObservableObject {
         startCurrent()
     }
 
+    /// Play a preference-weighted mix of these tracks (the "Smart Mix").
+    func playSmart(_ tracks: [Track]) {
+        let mix = Smart.mix(tracks)
+        guard !mix.isEmpty else { return }
+        shuffle = false
+        play(mix, startAt: 0)
+    }
+
     func playPause() {
         if isPlaying { player.pause(); isPlaying = false }
         else { player.play(); isPlaying = true }
@@ -60,8 +70,31 @@ final class PlayerEngine: ObservableObject {
         if repeatMode == .one && !userInitiated { seek(toFraction: 0); player.play(); return }
         if pos + 1 < order.count { pos += 1 }
         else if repeatMode != .off { pos = 0 }
-        else { player.pause(); isPlaying = false; return }
+        else {
+            if autoplay { appendRecommendations() }   // infinite queue: keep going with related tracks
+            if pos + 1 < order.count { pos += 1 }
+            else { player.pause(); isPlaying = false; return }
+        }
         startCurrent()
+    }
+
+    /// Start a queue seeded by `seed` and filled with similar tracks ("More Like This").
+    func playSimilar(to seed: Track) {
+        let lib = (try? SharedStore.container.mainContext.fetch(FetchDescriptor<Track>())) ?? []
+        shuffle = false
+        play([seed] + Recommender.similar(to: seed, in: lib), startAt: 0)
+    }
+
+    /// Append recommendations based on the current track so playback never dead-ends.
+    private func appendRecommendations() {
+        let lib = (try? SharedStore.container.mainContext.fetch(FetchDescriptor<Track>())) ?? []
+        guard !lib.isEmpty, let seed = current else { return }
+        let have = Set(queue.map { $0.id })
+        let recs = Recommender.similar(to: seed, in: lib, limit: 20).filter { !have.contains($0.id) }
+        guard !recs.isEmpty else { return }
+        let start = queue.count
+        queue.append(contentsOf: recs)
+        order.append(contentsOf: start..<queue.count)
     }
 
     func previous() {

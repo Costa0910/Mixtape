@@ -36,6 +36,8 @@ targets:
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
         LSApplicationCategoryType: public.app-category.utilities
+        NSLocalNetworkUsageDescription: "Snag lets your iPhone find this Mac on your Wi‑Fi to sync music."
+        NSBonjourServices: ["_snag._tcp"]
     entitlements:
       path: Sources/Snag.entitlements
       properties:

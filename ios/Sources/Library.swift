@@ -1,6 +1,8 @@
 import Foundation
 import AVFoundation
 import SwiftData
+import MediaPlayer
+import UIKit
 
 enum Importer {
     /// Import audio file URLs into the library. Returns how many were added.
@@ -50,6 +52,15 @@ enum Importer {
                 }
             }
         }
+        // genre usually lives in format-specific (iTunes/ID3) metadata, not the common set
+        if genre.isEmpty, let all = try? await asset.load(.metadata) {
+            let ids: [AVMetadataIdentifier] = [.iTunesMetadataUserGenre, .iTunesMetadataPredefinedGenre, .id3MetadataContentType]
+            search: for id in ids {
+                for item in AVMetadataItem.metadataItems(from: all, filteredByIdentifier: id) {
+                    if let s = try? await item.load(.stringValue), !s.isEmpty { genre = s; break search }
+                }
+            }
+        }
         // strip a leading "NN - " track-number prefix from the title
         if let r = title.range(of: #"^\d+\s*-\s*"#, options: .regularExpression) { title.removeSubrange(r) }
         if album.isEmpty { album = "Unknown Album" }
@@ -65,6 +76,46 @@ enum Importer {
         }
         return Track(title: title, artist: artist, album: album, genre: genre,
                      relPath: audioRel, artworkRel: artRel, duration: duration, trackNo: 0)
+    }
+
+    /// Build a Track from a song in the phone's Music library, exporting its audio
+    /// into our store as m4a so it plays fully offline like everything else.
+    static func makeTrack(from item: MPMediaItem) async -> Track? {
+        guard let src = item.assetURL else { return nil }
+        let stem = sanitize(item.title ?? "Song")
+        let name = uniqueAudioName("\(stem).m4a")
+        let audioRel = "Audio/\(name)"
+        let dest = Storage.media.appendingPathComponent(audioRel)
+
+        let asset = AVURLAsset(url: src)
+        guard let ex = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else { return nil }
+        ex.outputURL = dest
+        ex.outputFileType = .m4a
+        let ok = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            ex.exportAsynchronously { cont.resume(returning: ex.status == .completed) }
+        }
+        guard ok else { try? FileManager.default.removeItem(at: dest); return nil }
+
+        var artRel: String?
+        if let img = item.artwork?.image(at: CGSize(width: 600, height: 600)),
+           let data = img.jpegData(compressionQuality: 0.85) {
+            let key = item.albumTitle ?? item.title ?? UUID().uuidString
+            let rel = "Artwork/\(abs(key.hashValue)).jpg"
+            let out = Storage.media.appendingPathComponent(rel)
+            if !FileManager.default.fileExists(atPath: out.path) { try? data.write(to: out) }
+            artRel = rel
+        }
+
+        return Track(title: item.title ?? "Unknown",
+                     artist: item.artist ?? "Unknown Artist",
+                     album: item.albumTitle ?? "Unknown Album",
+                     genre: item.genre ?? "",
+                     relPath: audioRel, artworkRel: artRel,
+                     duration: item.playbackDuration, trackNo: item.albumTrackNumber)
+    }
+
+    private static func sanitize(_ s: String) -> String {
+        s.components(separatedBy: CharacterSet(charactersIn: "/\\:")).joined(separator: "-")
     }
 
     private static func uniqueAudioName(_ name: String) -> String {

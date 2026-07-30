@@ -11,7 +11,8 @@ struct SnagPlayerApp: App {
                 .environmentObject(player)
                 .preferredColorScheme(.dark)
                 .tint(.indigo)
+                .onOpenURL { QuickActions.handle($0) }
         }
-        .modelContainer(for: Track.self)
+        .modelContainer(SharedStore.container)
     }
 }

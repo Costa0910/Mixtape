@@ -5,9 +5,12 @@ struct RootView: View {
     @EnvironmentObject var player: PlayerEngine
     @Environment(\.modelContext) private var ctx
     @State private var showNowPlaying = false
+    @AppStorage("didOnboard") private var didOnboard = false
 
     var body: some View {
-        content
+        Group {
+            if didOnboard { content } else { OnboardingView(done: $didOnboard) }
+        }
             .task {
                 // dev-only: import any audio dropped into Documents (for testing)
                 guard ProcessInfo.processInfo.environment["SNAG_SEED"] != nil,
@@ -21,18 +24,25 @@ struct RootView: View {
 
     private var content: some View {
         TabView {
-            NavigationStack { LibraryView() }
-                .tabItem { Label("Library", systemImage: "music.note.list") }
-            NavigationStack { SearchView() }
+            tab { LibraryView() }
+                .tabItem { Label("Library", systemImage: "music.note.house") }
+            tab { PlaylistsView() }
+                .tabItem { Label("Playlists", systemImage: "music.note.list") }
+            tab { SearchView() }
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
-            NavigationStack { SyncView() }
+            tab { SyncView() }
                 .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
         }
-        .safeAreaInset(edge: .bottom) {
-            if player.current != nil {
-                MiniPlayer().onTapGesture { showNowPlaying = true }
-            }
-        }
         .fullScreenCover(isPresented: $showNowPlaying) { NowPlayingView() }
+    }
+
+    // Each tab docks the mini-player just above the tab bar (not over it).
+    private func tab<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        NavigationStack { content() }
+            .safeAreaInset(edge: .bottom) {
+                if player.current != nil {
+                    MiniPlayer().onTapGesture { showNowPlaying = true }
+                }
+            }
     }
 }

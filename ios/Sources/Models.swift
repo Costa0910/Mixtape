@@ -48,6 +48,29 @@ final class Track {
     }
 }
 
+// A user-made playlist. Stores an ordered list of Track ids so tracks can be
+// reordered and can appear in multiple playlists.
+@Model
+final class Playlist {
+    @Attribute(.unique) var id: UUID
+    var name: String
+    var createdAt: Date
+    var trackIDs: [UUID]
+
+    init(id: UUID = UUID(), name: String, trackIDs: [UUID] = []) {
+        self.id = id
+        self.name = name
+        self.createdAt = Date()
+        self.trackIDs = trackIDs
+    }
+
+    /// Resolve this playlist's ids to Tracks, preserving order and skipping any that were deleted.
+    func tracks(in all: [Track]) -> [Track] {
+        let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return trackIDs.compactMap { byID[$0] }
+    }
+}
+
 // Where the app keeps audio + artwork (in its own container).
 enum Storage {
     static let media: URL = {

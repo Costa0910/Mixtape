@@ -11,16 +11,18 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     PRODUCT_NAME: Snag
     TARGETED_DEVICE_FAMILY: "1"          # iPhone
-    # Simulator/dev builds don't need signing; set your team in Xcode for device.
-    CODE_SIGN_IDENTITY: ""
-    CODE_SIGNING_REQUIRED: "NO"
-    CODE_SIGNING_ALLOWED: "NO"
+    DEVELOPMENT_TEAM: 3ZHAXWQ5PA
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "Apple Development"
 targets:
   SnagPlayer:
     type: application
     platform: iOS
     sources:
       - path: Sources
+    dependencies:
+      - target: SnagWidgetExtension
+        embed: true
     info:
       path: Sources/Info.plist
       properties:
@@ -31,8 +33,36 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         NSLocalNetworkUsageDescription: "Snag finds your Mac on the local network to sync your music."
+        NSAppleMusicUsageDescription: "Snag reads the music already on your iPhone so you can play it all in one place."
         NSBonjourServices: ["_snag._tcp"]
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        CFBundleURLTypes:
+          - CFBundleURLName: com.costa.SnagPlayer
+            CFBundleURLSchemes: [snag]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
+
+  SnagWidgetExtension:
+    type: app-extension
+    platform: iOS
+    settings:
+      base:
+        PRODUCT_NAME: SnagWidget
+        PRODUCT_BUNDLE_IDENTIFIER: com.costa.SnagPlayer.widget
+    sources:
+      - path: Widget
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Snag
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+schemes:
+  SnagPlayer:
+    build:
+      targets:
+        SnagPlayer: all

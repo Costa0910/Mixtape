@@ -34,6 +34,9 @@ final class WebServer: ObservableObject {
         guard let l = chosen else { return }
         listener = l
         token = newToken
+        // Advertise over Bonjour so the iPhone app can find this Mac without typing an IP.
+        let deviceName = Host.current().localizedName ?? "Snag Mac"
+        l.service = NWListener.Service(name: deviceName, type: "_snag._tcp")
         l.newConnectionHandler = { [weak self] conn in
             conn.start(queue: self?.queue ?? .global())
             self?.receive(conn, buffer: Data())
@@ -123,9 +126,33 @@ final class WebServer: ObservableObject {
             streamFile(conn, rel: String(path.dropFirst(3)), range: headerValue("Range", header))
         } else if path.hasPrefix("/art/") {
             serveArt(conn, album: String(path.dropFirst(5)))
+        } else if path == "/manifest" {
+            send(conn, status: "200 OK", contentType: "application/json", body: Data(manifestJSON().utf8))
         } else {
             send(conn, status: "404 Not Found", body: Data("Not found".utf8))
         }
+    }
+
+    // JSON list of downloadable audio tracks — for the iOS app to sync from.
+    private func manifestJSON() -> String {
+        let fm = FileManager.default
+        var items: [[String: Any]] = []
+        let albums = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]))?
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+        for album in albums {
+            let tracks = (try? fm.contentsOfDirectory(at: album, includingPropertiesForKeys: [.fileSizeKey]))?
+                .filter { Media.isAudio($0) }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+            for t in tracks {
+                let size = (try? t.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                items.append(["path": "\(album.lastPathComponent)/\(t.lastPathComponent)", "size": size])
+            }
+        }
+        let obj: [String: Any] = ["tracks": items]
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              let s = String(data: data, encoding: .utf8) else { return "{\"tracks\":[]}" }
+        return s
     }
 
     // Extracts and caches an album's embedded cover art (off the listener queue).

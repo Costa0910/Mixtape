@@ -11,9 +11,12 @@ struct ArtworkView: View {
             Image(uiImage: img).resizable().scaledToFill()
         } else {
             ZStack {
-                LinearGradient(colors: [.indigo.opacity(0.7), .purple.opacity(0.4)],
+                LinearGradient(colors: [Color(hue: 0.66, saturation: 0.45, brightness: 0.52),
+                                        Color(hue: 0.78, saturation: 0.5, brightness: 0.34)],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: "music.note").foregroundStyle(.white.opacity(0.85))
+                Image(systemName: "music.note")
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.9))
             }
         }
     }
@@ -28,7 +31,10 @@ struct ImportButton: View {
             .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .mpeg4Audio, .mp3],
                           allowsMultipleSelection: true) { res in
                 if case .success(let urls) = res {
-                    Task { _ = await Importer.importFiles(urls, into: ctx) }
+                    Task {
+                        let n = await Importer.importFiles(urls, into: ctx)
+                        if n > 0 { Haptics.success() }
+                    }
                 }
             }
     }
@@ -39,9 +45,15 @@ struct ImportButton: View {
 struct LibraryView: View {
     @EnvironmentObject var player: PlayerEngine
     @Query(sort: \Track.dateAdded, order: .reverse) private var tracks: [Track]
-    private let cols = [GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 16)]
+    private let cols = [GridItem(.adaptive(minimum: 158, maximum: 210), spacing: 16)]
 
-    var albums: [AlbumGroup] { LibraryGrouping.albums(tracks) }
+    private var albums: [AlbumGroup] { LibraryGrouping.albums(tracks) }
+    private var recent: [Track] { Array(tracks.prefix(12)) }
+    private var loved: [Track] { Smart.loved(tracks) }
+    private var mostPlayed: [Track] { Smart.mostPlayed(tracks) }
+    private var recentlyPlayed: [Track] { Smart.recentlyPlayed(tracks) }
+    private var discover: [Track] { Recommender.discover(tracks) }
+    private var forYou: [Recommender.Mix] { Recommender.dailyMixes(from: tracks) }
 
     var body: some View {
         Group {
@@ -51,29 +63,99 @@ struct LibraryView: View {
                 } description: {
                     Text("Sync from your Mac, or import audio files.")
                 } actions: {
-                    ImportButton(label: "Import files")
+                    ImportButton(label: "Import files").buttonStyle(.borderedProminent)
                 }
             } else {
                 ScrollView {
-                    HStack {
-                        Button { shuffleAll() } label: { Label("Shuffle", systemImage: "shuffle") }
-                            .buttonStyle(.borderedProminent)
-                        Button { player.play(tracks, startAt: 0) } label: { Label("Play all", systemImage: "play.fill") }
-                            .buttonStyle(.bordered)
-                        Spacer()
-                    }.padding(.horizontal).padding(.top, 8)
-
-                    LazyVGrid(columns: cols, spacing: 16) {
-                        ForEach(albums) { album in
-                            NavigationLink { AlbumDetailView(album: album) } label: { AlbumTile(album: album) }
-                                .buttonStyle(.plain)
-                        }
-                    }.padding()
+                    VStack(alignment: .leading, spacing: 28) {
+                        actionBar
+                        if tracks.count >= 4 { smartMixCard }
+                        if !forYou.isEmpty { forYouSection }
+                        if !loved.isEmpty { TrackShelf(title: "Loved", tracks: loved) }
+                        if mostPlayed.count >= 3 { TrackShelf(title: "Most Played", tracks: mostPlayed) }
+                        if discover.count >= 3 { TrackShelf(title: "Discover", tracks: discover) }
+                        if recentlyPlayed.count >= 3 { TrackShelf(title: "Recently Played", tracks: recentlyPlayed) }
+                        if recent.count >= 4 { TrackShelf(title: "Recently Added", tracks: recent) }
+                        albumsSection
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 4)
+                    .padding(.bottom, 28)
                 }
             }
         }
         .navigationTitle("Library")
         .toolbar { ImportButton() }
+    }
+
+    private var smartMixCard: some View {
+        Button {
+            Haptics.rigid(); player.playSmart(tracks)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "sparkles").font(.title2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Smart Mix").font(.headline)
+                    Text("Tuned to what you love").font(.caption).opacity(0.85)
+                }
+                Spacer()
+                Image(systemName: "play.circle.fill").font(.title)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18).padding(.vertical, 16)
+            .background(
+                LinearGradient(colors: [Color.indigo, Color.purple],
+                               startPoint: .topLeading, endPoint: .bottomTrailing),
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            )
+            .shadow(color: .indigo.opacity(0.35), radius: 12, y: 6)
+        }.buttonStyle(Pressable(scale: 0.97))
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                Haptics.rigid(); player.shuffle = false; player.play(tracks, startAt: 0)
+            } label: {
+                Label("Play", systemImage: "play.fill")
+                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 13)
+                    .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
+            }.buttonStyle(Pressable())
+            Button {
+                Haptics.rigid(); shuffleAll()
+            } label: {
+                Label("Shuffle", systemImage: "shuffle")
+                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 13)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .foregroundStyle(.primary)
+            }.buttonStyle(Pressable())
+        }
+    }
+
+    private var forYouSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("For You").font(.title3.bold()).tracking(-0.2)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(forYou) { mix in
+                        NavigationLink { MixDetailView(mix: mix) } label: { MixCard(mix: mix) }
+                            .buttonStyle(Pressable(scale: 0.95))
+                    }
+                }.padding(.vertical, 2)
+            }
+        }
+    }
+
+    private var albumsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Albums").font(.title3.bold()).tracking(-0.2)
+            LazyVGrid(columns: cols, spacing: 18) {
+                ForEach(albums) { album in
+                    NavigationLink { AlbumDetailView(album: album) } label: { AlbumTile(album: album) }
+                        .buttonStyle(Pressable(scale: 0.97))
+                }
+            }
+        }
     }
 
     private func shuffleAll() {
@@ -82,15 +164,134 @@ struct LibraryView: View {
     }
 }
 
+/// A horizontal shelf of tappable song cards; tapping plays from that song in the shelf's order.
+struct TrackShelf: View {
+    let title: String
+    let tracks: [Track]
+    @EnvironmentObject var player: PlayerEngine
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.title3.bold()).tracking(-0.2)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(Array(tracks.enumerated()), id: \.element.id) { pair in
+                        Button {
+                            Haptics.light(); player.shuffle = false; player.play(tracks, startAt: pair.offset)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 7) {
+                                SquareArtwork(url: pair.element.artworkURL, corner: 12)
+                                    .frame(width: 150, height: 150)
+                                    .shadow(color: .black.opacity(0.35), radius: 7, y: 4)
+                                Text(pair.element.title).font(.subheadline.weight(.medium))
+                                    .lineLimit(1).frame(width: 150, alignment: .leading)
+                                Text(pair.element.artist).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).frame(width: 150, alignment: .leading)
+                            }
+                        }
+                        .buttonStyle(Pressable(scale: 0.94))
+                        .trackMenu(pair.element)
+                    }
+                }.padding(.vertical, 2)
+            }
+        }
+    }
+}
+
+/// A "Daily Mix" card: representative artwork (or a tinted gradient) with the mix name overlaid.
+struct MixCard: View {
+    let mix: Recommender.Mix
+
+    private var tint: Color {
+        let hue = Double(abs(mix.id.hashValue) % 360) / 360.0
+        return Color(hue: hue, saturation: 0.55, brightness: 0.6)
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            if mix.artwork != nil {
+                SquareArtwork(url: mix.artwork, corner: 14)
+                    .overlay(
+                        LinearGradient(colors: [.clear, .black.opacity(0.7)],
+                                       startPoint: .center, endPoint: .bottom)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    )
+            } else {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(LinearGradient(colors: [tint, tint.opacity(0.55)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .overlay(alignment: .topTrailing) {
+                        Image(systemName: "music.note").font(.title3)
+                            .foregroundStyle(.white.opacity(0.85)).padding(12)
+                    }
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(mix.subtitle.uppercased()).font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.75))
+                Text(mix.name).font(.headline).foregroundStyle(.white).lineLimit(2)
+            }
+            .padding(12)
+        }
+        .frame(width: 168, height: 168)
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
+    }
+}
+
+struct MixDetailView: View {
+    let mix: Recommender.Mix
+    @EnvironmentObject var player: PlayerEngine
+
+    var body: some View {
+        List {
+            Section {
+                VStack(spacing: 14) {
+                    SquareArtwork(url: mix.artwork, corner: 18)
+                        .frame(width: 200, height: 200)
+                        .shadow(color: .black.opacity(0.4), radius: 18, y: 8)
+                        .padding(.top, 8)
+                    Text(mix.name).font(.title2.bold()).tracking(-0.3).multilineTextAlignment(.center)
+                    Text("\(mix.tracks.count) song\(mix.tracks.count == 1 ? "" : "s")")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        Button { Haptics.rigid(); player.shuffle = false; player.play(mix.tracks, startAt: 0) } label: {
+                            Label("Play", systemImage: "play.fill")
+                                .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
+                        }.buttonStyle(Pressable())
+                        Button { Haptics.rigid(); player.shuffle = true; player.play(mix.tracks, startAt: 0) } label: {
+                            Label("Shuffle", systemImage: "shuffle")
+                                .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(.ultraThinMaterial, in: Capsule())
+                        }.buttonStyle(Pressable())
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+            }
+            Section {
+                ForEach(Array(mix.tracks.enumerated()), id: \.element.id) { pair in
+                    Button { Haptics.light(); player.play(mix.tracks, startAt: pair.offset) } label: {
+                        TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
+                    }.buttonStyle(.plain).trackMenu(pair.element)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .navigationTitle(mix.name).navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct AlbumTile: View {
     let album: AlbumGroup
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ArtworkView(url: album.artworkURL)
-                .aspectRatio(1, contentMode: .fill)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            Text(album.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-            Text(album.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        VStack(alignment: .leading, spacing: 8) {
+            SquareArtwork(url: album.artworkURL, corner: 14)
+                .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(album.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
         }
     }
 }
@@ -100,54 +301,79 @@ struct AlbumDetailView: View {
     @EnvironmentObject var player: PlayerEngine
 
     var body: some View {
-        List {
-            Section {
-                VStack(spacing: 12) {
-                    ArtworkView(url: album.artworkURL)
-                        .frame(width: 200, height: 200)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    Text(album.name).font(.title3.bold()).multilineTextAlignment(.center)
+        ScrollView {
+            VStack(spacing: 18) {
+                SquareArtwork(url: album.artworkURL, corner: 18)
+                    .frame(width: 220, height: 220)
+                    .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
+                    .padding(.top, 8)
+
+                VStack(spacing: 4) {
+                    Text(album.name).font(.title2.bold()).tracking(-0.3).multilineTextAlignment(.center)
                     Text(album.artist).foregroundStyle(.secondary)
-                    HStack {
-                        Button { player.shuffle = false; player.play(album.tracks, startAt: 0) } label: {
-                            Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
-                        }.buttonStyle(.borderedProminent)
-                        Button { player.shuffle = true; player.play(album.tracks, startAt: 0) } label: {
-                            Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity)
-                        }.buttonStyle(.bordered)
+                }
+
+                HStack(spacing: 12) {
+                    Button { Haptics.rigid(); player.shuffle = false; player.play(album.tracks, startAt: 0) } label: {
+                        Label("Play", systemImage: "play.fill")
+                            .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
+                            .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
+                    }.buttonStyle(Pressable())
+                    Button { Haptics.rigid(); player.shuffle = true; player.play(album.tracks, startAt: 0) } label: {
+                        Label("Shuffle", systemImage: "shuffle")
+                            .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    }.buttonStyle(Pressable())
+                }.padding(.horizontal, 4)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(album.tracks.enumerated()), id: \.element.id) { pair in
+                        Button {
+                            Haptics.light(); player.play(album.tracks, startAt: pair.offset)
+                        } label: {
+                            TrackRow(track: pair.element, index: pair.offset + 1,
+                                     playing: player.current?.id == pair.element.id)
+                        }.buttonStyle(Pressable(scale: 0.985)).trackMenu(pair.element)
+                        if pair.offset < album.tracks.count - 1 {
+                            Divider().padding(.leading, 44)
+                        }
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .listRowSeparator(.hidden)
             }
-            Section {
-                ForEach(Array(album.tracks.enumerated()), id: \.element.id) { pair in
-                    TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
-                        .contentShape(Rectangle())
-                        .onTapGesture { player.play(album.tracks, startAt: pair.offset) }
-                }
-            }
+            .padding(.horizontal)
+            .padding(.bottom, 24)
         }
-        .listStyle(.plain)
         .navigationTitle(album.name).navigationBarTitleDisplayMode(.inline)
     }
 }
 
 struct TrackRow: View {
     let track: Track
+    var index: Int? = nil
     var playing = false
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: playing ? "speaker.wave.2.fill" : "music.note")
-                .font(.caption).foregroundStyle(playing ? .indigo : .secondary).frame(width: 18)
+            Group {
+                if playing {
+                    Image(systemName: "speaker.wave.2.fill").font(.caption).foregroundStyle(.indigo)
+                } else if let index {
+                    Text("\(index)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: "music.note").font(.caption).foregroundStyle(.secondary)
+                }
+            }.frame(width: 28)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title).lineLimit(1).fontWeight(playing ? .semibold : .regular)
+                    .foregroundStyle(playing ? Color.indigo : Color.primary)
                 Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if track.loved { Image(systemName: "heart.fill").font(.caption).foregroundStyle(.pink) }
-            Text(track.durationText).font(.caption).foregroundStyle(.secondary)
+            Text(track.durationText).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
     }
 }
 
@@ -168,121 +394,282 @@ struct SearchView: View {
     }
 
     var body: some View {
-        List {
-            ForEach(Array(results.enumerated()), id: \.element.id) { pair in
-                TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
-                    .contentShape(Rectangle())
-                    .onTapGesture { player.play(results, startAt: pair.offset) }
+        Group {
+            if q.isEmpty {
+                ContentUnavailableView("Search your library", systemImage: "magnifyingglass",
+                                       description: Text("Find songs, artists, and albums."))
+            } else if results.isEmpty {
+                ContentUnavailableView.search(text: q)
+            } else {
+                List {
+                    ForEach(Array(results.enumerated()), id: \.element.id) { pair in
+                        Button { Haptics.light(); player.play(results, startAt: pair.offset) } label: {
+                            TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
+                        }.buttonStyle(.plain).trackMenu(pair.element)
+                    }
+                }.listStyle(.plain)
             }
         }
-        .listStyle(.plain)
         .searchable(text: $q, prompt: "Songs, artists, albums")
         .navigationTitle("Search")
     }
 }
 
-// MARK: - Sync (placeholder for Wi-Fi sync; import for now)
+// MARK: - Sync (Wi‑Fi from the Mac)
 
 struct SyncView: View {
+    @Environment(\.modelContext) private var ctx
+    @Query private var tracks: [Track]
+    @StateObject private var client = SyncClient()
+    @StateObject private var browser = BonjourBrowser()
+    @AppStorage("syncHost") private var host = ""
+    @AppStorage("syncPin") private var pin = ""
+
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 44)).foregroundStyle(.indigo)
-            Text("Sync from your Mac").font(.title3.bold())
-            Text("Wi‑Fi sync from the Snag Mac app is coming next.\nFor now, import audio files from Files or AirDrop.")
-                .multilineTextAlignment(.center).foregroundStyle(.secondary).padding(.horizontal)
-            ImportButton(label: "Import files")
-                .buttonStyle(.borderedProminent)
+        List {
+            if !browser.found.isEmpty {
+                Section {
+                    ForEach(browser.found) { mac in
+                        Button {
+                            Haptics.light(); host = mac.address
+                        } label: {
+                            HStack {
+                                Image(systemName: "desktopcomputer").foregroundStyle(.indigo)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(mac.name).foregroundStyle(.primary)
+                                    Text(mac.address).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if host == mac.address { Image(systemName: "checkmark").foregroundStyle(.indigo) }
+                            }
+                        }
+                    }
+                } header: { Text("On your network") }
+            }
+
+            Section {
+                TextField("192.168.1.42:8080", text: $host)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                TextField("PIN", text: $pin).keyboardType(.numberPad)
+            } header: { Text("Your Mac") } footer: {
+                Text("On the Mac: **Snag → Devices → Wireless (on)**. Your Mac appears above automatically, or type the address and PIN it shows.")
+            }
+
+            Section {
+                Button { Task { await run() } } label: {
+                    HStack {
+                        if client.busy { ProgressView().tint(.white) }
+                        Text(client.busy ? "Syncing…" : "Sync now").fontWeight(.semibold)
+                        Spacer()
+                    }
+                }
+                .disabled(client.busy || host.isEmpty || pin.isEmpty)
+                .listRowBackground(host.isEmpty || pin.isEmpty ? Color.gray.opacity(0.3) : Color.indigo)
+                .foregroundStyle(.white)
+
+                if client.busy {
+                    ProgressView(value: client.progress).tint(.indigo)
+                }
+                if !client.status.isEmpty {
+                    Text(client.status).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                ImportDeviceMusicButton()
+                ImportButton(label: "Import from Files")
+            } header: { Text("On this iPhone") } footer: {
+                Text("Bring in the music already in your Music app, or add files via AirDrop or the Files app.")
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Sync")
+        .onAppear { browser.start() }
+        .onDisappear { browser.stop() }
+    }
+
+    private func run() async {
+        Haptics.light()
+        let existing = Set(tracks.map { ($0.relPath as NSString).lastPathComponent })
+        await client.sync(host: host, pin: pin, existingFilenames: existing, into: ctx)
+        if client.progress >= 1 { Haptics.success() }
     }
 }
 
-// MARK: - Mini-player + Now Playing
+// MARK: - Floating mini-player
 
 struct MiniPlayer: View {
     @EnvironmentObject var player: PlayerEngine
     var body: some View {
-        HStack(spacing: 12) {
-            ArtworkView(url: player.current?.artworkURL)
-                .frame(width: 42, height: 42).clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(player.current?.title ?? "").font(.subheadline.weight(.medium)).lineLimit(1)
-                Text(player.current?.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        VStack(spacing: 0) {
+            GeometryReader { geo in
+                Capsule().fill(Color.indigo)
+                    .frame(width: max(0, geo.size.width * player.progress), height: 2)
+                    .animation(.linear(duration: 0.3), value: player.progress)
+            }.frame(height: 2)
+
+            HStack(spacing: 12) {
+                SquareArtwork(url: player.current?.artworkURL, corner: 8)
+                    .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(player.current?.title ?? "").font(.subheadline.weight(.medium)).lineLimit(1)
+                    Text(player.current?.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Button { Haptics.soft(); player.playPause() } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title3).frame(width: 30, height: 30)
+                }.buttonStyle(Pressable(scale: 0.85))
+                Button { Haptics.soft(); player.next(userInitiated: true) } label: {
+                    Image(systemName: "forward.fill").font(.body).frame(width: 30, height: 30)
+                }.buttonStyle(Pressable(scale: 0.85))
             }
-            Spacer()
-            Button { player.playPause() } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3)
-            }
-            Button { player.next(userInitiated: true) } label: { Image(systemName: "forward.fill") }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 12).padding(.vertical, 8)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
         .background(.ultraThinMaterial)
-        .overlay(alignment: .top) { Divider() }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.28), radius: 12, y: 4)
+        .padding(.horizontal, 10)
     }
 }
+
+// MARK: - Now Playing
 
 struct NowPlayingView: View {
     @EnvironmentObject var player: PlayerEngine
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 22) {
-            Capsule().fill(.secondary).frame(width: 40, height: 5).padding(.top, 8)
-            ArtworkView(url: player.current?.artworkURL)
-                .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .shadow(radius: 16, y: 8)
-                .padding(.horizontal, 30)
+            VStack(spacing: 0) {
+                Capsule().fill(.white.opacity(0.5)).frame(width: 40, height: 5).padding(.top, 10)
 
-            VStack(spacing: 4) {
-                Text(player.current?.title ?? "").font(.title2.bold()).lineLimit(1)
-                Text(player.current?.artist ?? "").foregroundStyle(.secondary)
-            }.padding(.horizontal)
+                Spacer(minLength: 16)
 
-            VStack(spacing: 4) {
-                Slider(value: Binding(get: { player.progress }, set: { player.seek(toFraction: $0) }))
-                HStack {
-                    Text(timeStr(player.elapsed)).font(.caption2).foregroundStyle(.secondary)
-                    Spacer()
-                    Text(timeStr(player.duration)).font(.caption2).foregroundStyle(.secondary)
+                SquareArtwork(url: player.current?.artworkURL, corner: 22)
+                    .frame(maxWidth: 340, maxHeight: 340)
+                    .frame(maxWidth: .infinity)
+                    .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+                    .scaleEffect(player.isPlaying ? 1.0 : 0.84)
+                    .animation(.bouncy, value: player.isPlaying)
+
+                Spacer(minLength: 16)
+
+                VStack(spacing: 20) {
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(player.current?.title ?? "").font(.title2.bold()).tracking(-0.4).lineLimit(1)
+                                .foregroundStyle(.white)
+                            Text(player.current?.artist ?? "").font(.title3).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Spacer(minLength: 12)
+                        Button {
+                            guard let t = player.current else { return }
+                            Haptics.rigid(); withAnimation(.bouncy) { t.loved.toggle() }
+                        } label: {
+                            Image(systemName: (player.current?.loved ?? false) ? "heart.fill" : "heart")
+                                .font(.title2)
+                                .foregroundStyle((player.current?.loved ?? false) ? Color.pink : .white.opacity(0.8))
+                                .symbolEffect(.bounce, value: player.current?.loved)
+                        }.buttonStyle(Pressable(scale: 0.8))
+                    }
+
+                    Scrubber()
+
+                    HStack(spacing: 44) {
+                        Button { Haptics.soft(); player.previous() } label: {
+                            Image(systemName: "backward.fill").font(.title)
+                        }.buttonStyle(Pressable(scale: 0.85))
+                        Button { Haptics.rigid(); player.playPause() } label: {
+                            Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.system(size: 72))
+                                .contentTransition(.symbolEffect(.replace))
+                        }.buttonStyle(Pressable(scale: 0.9))
+                        Button { Haptics.soft(); player.next(userInitiated: true) } label: {
+                            Image(systemName: "forward.fill").font(.title)
+                        }.buttonStyle(Pressable(scale: 0.85))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.top, 4)
+
+                    HStack(spacing: 44) {
+                        Button { Haptics.select(); player.toggleShuffle() } label: {
+                            Image(systemName: "shuffle")
+                                .foregroundStyle(player.shuffle ? Color.indigo : .white.opacity(0.6))
+                        }.buttonStyle(Pressable(scale: 0.8))
+                        Button { Haptics.select(); player.autoplay.toggle() } label: {
+                            Image(systemName: "infinity")
+                                .foregroundStyle(player.autoplay ? Color.indigo : .white.opacity(0.6))
+                        }.buttonStyle(Pressable(scale: 0.8))
+                        Button { Haptics.select(); player.cycleRepeat() } label: {
+                            Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                                .foregroundStyle(player.repeatMode == .off ? .white.opacity(0.6) : Color.indigo)
+                        }.buttonStyle(Pressable(scale: 0.8))
+                    }
+                    .font(.title3)
+                    .padding(.top, 2)
                 }
-            }.padding(.horizontal, 30)
+                .padding(.horizontal, 34)
 
-            HStack(spacing: 40) {
-                Button { player.previous() } label: { Image(systemName: "backward.fill").font(.title) }
-                Button { player.playPause() } label: {
-                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 64))
-                }
-                Button { player.next(userInitiated: true) } label: { Image(systemName: "forward.fill").font(.title) }
+                Spacer(minLength: 20)
             }
-
-            HStack(spacing: 50) {
-                Button { player.toggleShuffle() } label: {
-                    Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Color.indigo : Color.secondary)
-                }
-                Button { if let t = player.current { t.loved.toggle() } } label: {
-                    Image(systemName: (player.current?.loved ?? false) ? "heart.fill" : "heart")
-                        .foregroundStyle((player.current?.loved ?? false) ? Color.pink : Color.secondary)
-                }
-                Button { player.cycleRepeat() } label: {
-                    Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                        .foregroundStyle(player.repeatMode == .off ? Color.secondary : Color.indigo)
-                }
-            }.font(.title3)
-
-            Spacer()
-        }
-        .padding(.bottom, 30)
-        .presentationDragIndicator(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                AmbientBackground(url: player.current?.artworkURL)
+                    .animation(.easeInOut(duration: 0.5), value: player.current?.id)
+            )
+        .preferredColorScheme(.dark)
         .overlay(alignment: .topTrailing) {
-            Button { dismiss() } label: { Image(systemName: "chevron.down").padding() }
-                .foregroundStyle(.secondary)
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.down").font(.body.weight(.semibold)).padding(14)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+        }
+    }
+}
+
+/// Direct-manipulation scrubber: responds on touch-down, tracks 1:1, seeks on release (§1–§2).
+struct Scrubber: View {
+    @EnvironmentObject var player: PlayerEngine
+    @State private var dragFrac: Double? = nil
+
+    var body: some View {
+        VStack(spacing: 6) {
+            GeometryReader { geo in
+                let frac = dragFrac ?? player.progress
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.22))
+                    Capsule().fill(.white).frame(width: max(0, geo.size.width * frac))
+                }
+                .frame(height: dragFrac == nil ? 6 : 9)
+                .frame(maxHeight: .infinity, alignment: .center)
+                .animation(.snappy, value: dragFrac == nil)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { v in dragFrac = min(max(v.location.x / geo.size.width, 0), 1) }
+                        .onEnded { v in
+                            let f = min(max(v.location.x / geo.size.width, 0), 1)
+                            player.seek(toFraction: f); dragFrac = nil; Haptics.select()
+                        }
+                )
+            }.frame(height: 24)
+
+            HStack {
+                Text(timeStr((dragFrac ?? player.progress) * player.duration))
+                Spacer()
+                Text("-" + timeStr(max(0, player.duration - (dragFrac ?? player.progress) * player.duration)))
+            }
+            .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
         }
     }
 
     private func timeStr(_ s: Double) -> String {
-        guard s.isFinite, s > 0 else { return "0:00" }
+        guard s.isFinite, s >= 0 else { return "0:00" }
         let i = Int(s); return String(format: "%d:%02d", i / 60, i % 60)
     }
 }
