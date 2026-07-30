@@ -39,6 +39,12 @@ final class PlayerEngine: ObservableObject {
     var progress: Double { duration > 0 ? elapsed / duration : 0 }
     var hasNext: Bool { pos + 1 < order.count || repeatMode != .off }
     var hasPrev: Bool { pos > 0 }
+    
+    // Playback queue exposing properties
+    var fullQueue: [Track] {
+        order.map { queue[$0] }
+    }
+    var currentQueueIndex: Int { pos }
 
     // MARK: control
 
@@ -130,6 +136,24 @@ final class PlayerEngine: ObservableObject {
         guard duration > 0 else { return }
         player.seek(to: CMTime(seconds: f * duration, preferredTimescale: 600))
         elapsed = f * duration
+        updateNowPlaying()
+    }
+
+    func skipToQueueIndex(_ index: Int) {
+        guard index >= 0, index < order.count else { return }
+        pos = index
+        startCurrent()
+    }
+    
+    func removeFromQueue(at index: Int) {
+        guard index >= 0, index < order.count, order.count > 1 else { return }
+        if index == pos {
+            next()
+            if pos > index { pos -= 1 }
+        } else if pos > index {
+            pos -= 1
+        }
+        order.remove(at: index)
         updateNowPlaying()
     }
 

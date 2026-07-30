@@ -595,7 +595,11 @@ struct MiniPlayer: View {
 
 struct NowPlayingView: View {
     @EnvironmentObject var player: PlayerEngine
+    @Environment(\.modelContext) private var ctx
     @Environment(\.dismiss) private var dismiss
+    @State private var showingQueue = false
+    @State private var showingPlaylistSheet = false
+    @State private var activeMenuTrack: Track? = nil
 
     var body: some View {
             VStack(spacing: 0) {
@@ -620,15 +624,43 @@ struct NowPlayingView: View {
                             Text(player.current?.artist ?? "").font(.title3).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        
                         Spacer(minLength: 12)
+                        
                         Button {
                             guard let t = player.current else { return }
-                            Haptics.rigid(); withAnimation(.bouncy) { t.loved.toggle() }
+                            Haptics.rigid(); withAnimation(.bouncy) {
+                                t.loved.toggle()
+                                try? ctx.save()
+                            }
                         } label: {
                             Image(systemName: (player.current?.loved ?? false) ? "heart.fill" : "heart")
                                 .font(.title2)
                                 .foregroundStyle((player.current?.loved ?? false) ? Color.pink : .white.opacity(0.8))
                                 .symbolEffect(.bounce, value: player.current?.loved)
+                        }.buttonStyle(Pressable(scale: 0.8))
+                        
+                        Menu {
+                            Button {
+                                if let current = player.current {
+                                    activeMenuTrack = current
+                                    showingPlaylistSheet = true
+                                }
+                            } label: {
+                                Label("Add to Playlist…", systemImage: "text.badge.plus")
+                            }
+                            
+                            Button(role: .destructive) {
+                                if let current = player.current {
+                                    deleteTrack(current)
+                                }
+                            } label: {
+                                Label("Delete from Library", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.title2)
+                                .foregroundStyle(.white.opacity(0.8))
                         }.buttonStyle(Pressable(scale: 0.8))
                     }
 
@@ -661,23 +693,37 @@ struct NowPlayingView: View {
                         }.buttonStyle(Pressable(scale: 0.8))
                         
                         Menu {
-                            Button("Off", role: player.sleepTimerRemaining == nil && !player.sleepTimerEndBlock ? .destructive : nil) {
-                                player.setSleepTimer(minutes: nil)
+                            if player.sleepTimerRemaining != nil || player.sleepTimerEndBlock {
+                                Section("Active Timer") {
+                                    if let remaining = player.sleepTimerRemaining {
+                                        let mins = Int(remaining) / 60
+                                        let secs = Int(remaining) % 60
+                                        Button("Cancel Timer (\(String(format: "%d:%02d", mins, secs)) left)", role: .destructive) {
+                                            player.setSleepTimer(minutes: nil)
+                                        }
+                                    } else if player.sleepTimerEndBlock {
+                                        Button("Cancel (End of Song)", role: .destructive) {
+                                            player.setSleepTimer(minutes: nil)
+                                        }
+                                    }
+                                }
                             }
-                            Button("End of Current Song") {
-                                player.setSleepTimerEndBlock()
-                            }
-                            Button("15 Minutes") {
-                                player.setSleepTimer(minutes: 15)
-                            }
-                            Button("30 Minutes") {
-                                player.setSleepTimer(minutes: 30)
-                            }
-                            Button("45 Minutes") {
-                                player.setSleepTimer(minutes: 45)
-                            }
-                            Button("60 Minutes") {
-                                player.setSleepTimer(minutes: 60)
+                            Section("Set Timer") {
+                                Button("End of Current Song") {
+                                    player.setSleepTimerEndBlock()
+                                }
+                                Button("15 Minutes") {
+                                    player.setSleepTimer(minutes: 15)
+                                }
+                                Button("30 Minutes") {
+                                    player.setSleepTimer(minutes: 30)
+                                }
+                                Button("45 Minutes") {
+                                    player.setSleepTimer(minutes: 45)
+                                }
+                                Button("60 Minutes") {
+                                    player.setSleepTimer(minutes: 60)
+                                }
                             }
                         } label: {
                             VStack(spacing: 1) {
@@ -717,12 +763,63 @@ struct NowPlayingView: View {
                     .animation(.easeInOut(duration: 0.5), value: player.current?.id)
             )
         .preferredColorScheme(.dark)
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .topLeading) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.down").font(.body.weight(.semibold)).padding(14)
                     .foregroundStyle(.white.opacity(0.85))
             }
         }
+        .overlay(alignment: .topTrailing) {
+            Button { Haptics.select(); showingQueue = true } label: {
+                Image(systemName: "list.bullet").font(.body.weight(.semibold)).padding(14)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+        }
+        .sheet(isPresented: $showingQueue) {
+            QueueView()
+        }
+        .sheet(isPresented: $showingPlaylistSheet) {
+            if let track = activeMenuTrack {
+                AddToPlaylistSheet(track: track)
+                    .presentationDetents([.medium, .large])
+            }
+        }
+    }
+
+    private func deleteTrack(_ track: Track) {
+        Haptics.rigid()
+        
+        // Stop playback if current
+        if player.current?.id == track.id {
+            player.playPause()
+            player.current = nil
+        }
+        
+        // Delete audio file
+        try? FileManager.default.removeItem(at: track.url)
+        
+        // Delete artwork if no other track uses it
+        if let artworkURL = track.artworkURL {
+            let trackID = track.id
+            let artworkRel = track.artworkRel
+            let allTracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
+            let shared = allTracks.contains { $0.id != trackID && $0.artworkRel == artworkRel }
+            if !shared {
+                try? FileManager.default.removeItem(at: artworkURL)
+            }
+        }
+        
+        // Remove from all playlists
+        let trackID = track.id
+        if let playlists = try? ctx.fetch(FetchDescriptor<Playlist>()) {
+            for pl in playlists {
+                pl.trackIDs.removeAll { $0 == trackID }
+            }
+        }
+        
+        ctx.delete(track)
+        try? ctx.save()
+        dismiss()
     }
 }
 
@@ -765,5 +862,87 @@ struct Scrubber: View {
     private func timeStr(_ s: Double) -> String {
         guard s.isFinite, s >= 0 else { return "0:00" }
         let i = Int(s); return String(format: "%d:%02d", i / 60, i % 60)
+    }
+}
+
+// MARK: - Queue Viewer
+
+struct QueueView: View {
+    @EnvironmentObject var player: PlayerEngine
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                if let current = player.current {
+                    Section("Now Playing") {
+                        QueueRow(track: current, active: true)
+                    }
+                }
+                
+                let upcoming = player.fullQueue.enumerated().filter { $0.offset > player.currentQueueIndex }
+                if !upcoming.isEmpty {
+                    Section("Next Up") {
+                        ForEach(upcoming, id: \.element.id) { index, track in
+                            Button {
+                                Haptics.light()
+                                player.skipToQueueIndex(index)
+                            } label: {
+                                QueueRow(track: track, active: false)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .onDelete { indexSet in
+                            for offset in indexSet {
+                                let targetIndex = offset + player.currentQueueIndex + 1
+                                player.removeFromQueue(at: targetIndex)
+                            }
+                        }
+                    }
+                } else {
+                    Section("Next Up") {
+                        Text("Queue is empty").foregroundStyle(.secondary).font(.callout)
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .navigationTitle("Playing Next")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+struct QueueRow: View {
+    let track: Track
+    let active: Bool
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            SquareArtwork(url: track.artworkURL, corner: 6)
+                .frame(width: 40, height: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(active ? Color.indigo : .primary)
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if active {
+                Image(systemName: "waveform")
+                    .font(.caption)
+                    .foregroundStyle(Color.indigo)
+                    .symbolEffect(.variableColor, options: .repeating)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
