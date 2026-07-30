@@ -4,19 +4,61 @@ import UniformTypeIdentifiers
 
 // MARK: - Artwork
 
+final class ImageCache {
+    static let shared = ImageCache()
+    private let cache = NSCache<NSURL, UIImage>()
+    
+    private init() {
+        cache.countLimit = 150
+    }
+    
+    func get(for url: URL) -> UIImage? {
+        return cache.object(forKey: url as NSURL)
+    }
+    
+    func set(_ image: UIImage, for url: URL) {
+        cache.setObject(image, forKey: url as NSURL)
+    }
+}
+
 struct ArtworkView: View {
     let url: URL?
+    @State private var image: UIImage? = nil
+
     var body: some View {
-        if let url, let img = UIImage(contentsOfFile: url.path) {
-            Image(uiImage: img).resizable().scaledToFill()
-        } else {
-            ZStack {
-                LinearGradient(colors: [Color(hue: 0.66, saturation: 0.45, brightness: 0.52),
-                                        Color(hue: 0.78, saturation: 0.5, brightness: 0.34)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: "music.note")
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.9))
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                ZStack {
+                    LinearGradient(colors: [Color(hue: 0.66, saturation: 0.45, brightness: 0.52),
+                                            Color(hue: 0.78, saturation: 0.5, brightness: 0.34)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: "music.note")
+                        .font(.system(size: 26, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+            }
+        }
+        .task(id: url) {
+            guard let url else { self.image = nil; return }
+            if let cached = ImageCache.shared.get(for: url) {
+                self.image = cached
+                return
+            }
+            
+            let loaded = await Task.detached(priority: .userInteractive) { () -> UIImage? in
+                guard let data = try? Data(contentsOf: url),
+                      let img = UIImage(data: data) else { return nil }
+                _ = img.cgImage?.dataProvider?.data // force decode
+                return img
+            }.value
+            
+            if let loaded {
+                ImageCache.shared.set(loaded, for: url)
+                self.image = loaded
+            } else {
+                self.image = nil
             }
         }
     }
@@ -47,13 +89,13 @@ struct LibraryView: View {
     @Query(sort: \Track.dateAdded, order: .reverse) private var tracks: [Track]
     private let cols = [GridItem(.adaptive(minimum: 158, maximum: 210), spacing: 16)]
 
-    private var albums: [AlbumGroup] { LibraryGrouping.albums(tracks) }
-    private var recent: [Track] { Array(tracks.prefix(12)) }
-    private var loved: [Track] { Smart.loved(tracks) }
-    private var mostPlayed: [Track] { Smart.mostPlayed(tracks) }
-    private var recentlyPlayed: [Track] { Smart.recentlyPlayed(tracks) }
-    private var discover: [Track] { Recommender.discover(tracks) }
-    private var forYou: [Recommender.Mix] { Recommender.dailyMixes(from: tracks) }
+    @State private var albums: [AlbumGroup] = []
+    @State private var recent: [Track] = []
+    @State private var loved: [Track] = []
+    @State private var mostPlayed: [Track] = []
+    @State private var recentlyPlayed: [Track] = []
+    @State private var discover: [Track] = []
+    @State private var forYou: [Recommender.Mix] = []
 
     var body: some View {
         Group {
@@ -86,6 +128,15 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .toolbar { ImportButton() }
+        .onChange(of: tracks, initial: true) { _, newTracks in
+            albums = LibraryGrouping.albums(newTracks)
+            recent = Array(newTracks.prefix(12))
+            loved = Smart.loved(newTracks)
+            mostPlayed = Smart.mostPlayed(newTracks)
+            recentlyPlayed = Smart.recentlyPlayed(newTracks)
+            discover = Recommender.discover(newTracks)
+            forYou = Recommender.dailyMixes(from: newTracks)
+        }
     }
 
     private var smartMixCard: some View {
