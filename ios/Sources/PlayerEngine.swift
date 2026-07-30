@@ -17,6 +17,11 @@ final class PlayerEngine: ObservableObject {
     @Published var repeatMode: RepeatMode = .off
     @Published var elapsed: Double = 0
     @Published var duration: Double = 0
+    
+    // Sleep Timer properties
+    @Published var sleepTimerRemaining: TimeInterval? = nil
+    @Published var sleepTimerEndBlock: Bool = false
+    private var sleepTimer: Timer? = nil
 
     private let player = AVPlayer()
     private var queue: [Track] = []
@@ -144,7 +149,56 @@ final class PlayerEngine: ObservableObject {
         updateNowPlaying()
     }
 
-    @objc private func itemEnded() { next() }
+    @objc private func itemEnded() {
+        if sleepTimerEndBlock {
+            sleepTimerEndBlock = false
+            player.pause()
+            isPlaying = false
+            updateNowPlaying()
+        } else {
+            next()
+        }
+    }
+
+    // Sleep Timer controls
+    func setSleepTimer(minutes: Int?) {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepTimerEndBlock = false
+        
+        guard let minutes else {
+            sleepTimerRemaining = nil
+            return
+        }
+        
+        let seconds = TimeInterval(minutes * 60)
+        sleepTimerRemaining = seconds
+        
+        sleepTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                if let rem = self.sleepTimerRemaining {
+                    if rem <= 1 {
+                        self.sleepTimerRemaining = nil
+                        self.sleepTimer?.invalidate()
+                        self.sleepTimer = nil
+                        if self.isPlaying {
+                            self.playPause()
+                        }
+                    } else {
+                        self.sleepTimerRemaining = rem - 1
+                    }
+                }
+            }
+        }
+    }
+
+    func setSleepTimerEndBlock() {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepTimerRemaining = nil
+        sleepTimerEndBlock = true
+    }
 
     private func configureSession() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)

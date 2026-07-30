@@ -599,7 +599,7 @@ struct NowPlayingView: View {
                     .foregroundStyle(.white)
                     .padding(.top, 4)
 
-                    HStack(spacing: 44) {
+                    HStack(spacing: 34) {
                         Button { Haptics.select(); player.toggleShuffle() } label: {
                             Image(systemName: "shuffle")
                                 .foregroundStyle(player.shuffle ? Color.indigo : .white.opacity(0.6))
@@ -608,6 +608,46 @@ struct NowPlayingView: View {
                             Image(systemName: "infinity")
                                 .foregroundStyle(player.autoplay ? Color.indigo : .white.opacity(0.6))
                         }.buttonStyle(Pressable(scale: 0.8))
+                        
+                        Menu {
+                            Button("Off", role: player.sleepTimerRemaining == nil && !player.sleepTimerEndBlock ? .destructive : nil) {
+                                player.setSleepTimer(minutes: nil)
+                            }
+                            Button("End of Current Song") {
+                                player.setSleepTimerEndBlock()
+                            }
+                            Button("15 Minutes") {
+                                player.setSleepTimer(minutes: 15)
+                            }
+                            Button("30 Minutes") {
+                                player.setSleepTimer(minutes: 30)
+                            }
+                            Button("45 Minutes") {
+                                player.setSleepTimer(minutes: 45)
+                            }
+                            Button("60 Minutes") {
+                                player.setSleepTimer(minutes: 60)
+                            }
+                        } label: {
+                            VStack(spacing: 1) {
+                                Image(systemName: "timer")
+                                    .font(.title3)
+                                    .foregroundStyle((player.sleepTimerRemaining != nil || player.sleepTimerEndBlock) ? Color.indigo : .white.opacity(0.6))
+                                if let remaining = player.sleepTimerRemaining {
+                                    let mins = Int(remaining) / 60
+                                    let secs = Int(remaining) % 60
+                                    Text(String(format: "%d:%02d", mins, secs))
+                                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(Color.indigo)
+                                } else if player.sleepTimerEndBlock {
+                                    Text("End")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundStyle(Color.indigo)
+                                }
+                            }
+                            .frame(height: 32)
+                        }
+                        
                         Button { Haptics.select(); player.cycleRepeat() } label: {
                             Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
                                 .foregroundStyle(player.repeatMode == .off ? .white.opacity(0.6) : Color.indigo)
