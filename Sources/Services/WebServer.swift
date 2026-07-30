@@ -263,7 +263,7 @@ final class WebServer: ObservableObject {
             let albEnc = album.lastPathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
                 ?? album.lastPathComponent
             let artURL = "/art/\(albEnc)"
-            rows += "<div class=alb><img class=art src=\"\(artURL)\" onerror=\"this.classList.add('ph')\">"
+            rows += "<div class=section><div class=alb><img class=art src=\"\(artURL)\" onerror=\"this.classList.add('ph')\">"
                 + "<h2>\(esc(album.lastPathComponent))</h2></div><ul>"
             for t in tracks {
                 let rel = "\(album.lastPathComponent)/\(t.lastPathComponent)"
@@ -279,7 +279,7 @@ final class WebServer: ObservableObject {
                     rows += "<li>🎬 <a href=\"/f/\(enc)\" download>\(esc(name))</a></li>"
                 }
             }
-            rows += "</ul>"
+            rows += "</ul></div>"
         }
         if rows.isEmpty { rows = "<p>Library is empty.</p>" }
         let js = "[" + jsItems.joined(separator: ",") + "]"
@@ -296,9 +296,10 @@ final class WebServer: ObservableObject {
         li.cur{background:#1c2030}
         .pl{background:#2a2f3d;color:#fff;border:0;border-radius:8px;width:34px;height:34px;font-size:13px}
         .nm{flex:1} .dl{opacity:.6;font-size:18px}
-        .btns{display:flex;gap:10px;margin:6px 0 14px}
+        .btns{display:flex;gap:10px;margin:6px 0 12px;flex-wrap:wrap}
         .bg{background:#5b6cff;color:#fff;border:0;border-radius:10px;padding:10px 16px;font-size:15px}
         .bg.sec{background:#2a2f3d}
+        .search{width:100%;box-sizing:border-box;padding:11px 14px;margin:4px 0 12px;border-radius:10px;border:1px solid #2a2f3d;background:#181b22;color:#fff;font-size:15px}
         #bar{position:fixed;left:0;right:0;bottom:0;background:#181b22;border-top:1px solid #2a2f3d;padding:8px 14px}
         .now{display:flex;align-items:center;gap:10px;margin-bottom:6px}
         #bart{width:38px;height:38px;border-radius:6px;object-fit:cover;background:#242938}
@@ -308,7 +309,8 @@ final class WebServer: ObservableObject {
         </style></head><body>
         <h1>📥 Snag library</h1>
         <p class=tip>Tap ▶ to <b>play here</b> — streams from your Mac, nothing to find. ⬇︎ downloads the file (iPhone saves to <b>Files → Downloads</b>).</p>
-        <div class=btns><button class=bg id=all>▶ Play all</button><button class="bg sec" id=shuf>🔀 Shuffle</button></div>
+        <input class=search id=q placeholder="Search tracks or albums…" autocomplete=off>
+        <div class=btns><button class=bg id=all>▶ Play all</button><button class="bg sec" id=shuf>🔀 Shuffle</button><button class="bg sec" id=rep>🔁 Repeat: Off</button></div>
         \(rows)
         <div id=bar><div class=now><img id=bart><div id=np>—</div></div><audio id=au controls playsinline></audio></div>
         <script>
@@ -325,7 +327,18 @@ final class WebServer: ObservableObject {
           else{order=T.map((_,k)=>k);playPos(i);}}));
         document.getElementById('all').onclick=()=>{order=T.map((_,k)=>k);playPos(0);};
         document.getElementById('shuf').onclick=()=>{order=shuffle(T.map((_,k)=>k));playPos(0);};
-        au.addEventListener('ended',()=>{if(pos+1<order.length)playPos(pos+1);});
+        let rep=0;const repBtn=document.getElementById('rep'),repLbl=['🔁 Repeat: Off','🔁 Repeat: All','🔂 Repeat: One'];
+        repBtn.onclick=()=>{rep=(rep+1)%3;repBtn.textContent=repLbl[rep];};
+        au.addEventListener('ended',()=>{if(rep===2){au.currentTime=0;au.play();return;}
+          if(pos+1<order.length)playPos(pos+1);else if(rep===1)playPos(0);});
+        const q=document.getElementById('q');
+        q.addEventListener('input',()=>{const s=q.value.toLowerCase();
+          document.querySelectorAll('.section').forEach(sec=>{let any=false;
+            const alb=sec.querySelector('h2').textContent.toLowerCase();
+            sec.querySelectorAll('li').forEach(li=>{const nm=li.querySelector('.nm');
+              const txt=((nm?nm.textContent:li.textContent)+' '+alb).toLowerCase();
+              const show=txt.includes(s);li.style.display=show?'':'none';if(show)any=true;});
+            sec.style.display=any?'':'none';});});
         </script></body></html>
         """
     }
