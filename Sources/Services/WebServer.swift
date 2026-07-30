@@ -15,6 +15,8 @@ final class WebServer: ObservableObject {
     private var root = FileManager.default.temporaryDirectory
     private var token = ""                     // session cookie value
     private let queue = DispatchQueue(label: "snag.webserver")
+    private var artCache: [String: Data] = [:] // album path → cover PNG
+    private let artLock = NSLock()
 
     func toggle(root: URL) { running ? stop() : start(root: root) }
 
@@ -119,8 +121,46 @@ final class WebServer: ObservableObject {
             send(conn, status: "200 OK", contentType: "text/html; charset=utf-8", body: Data(indexHTML().utf8))
         } else if path.hasPrefix("/f/") {
             streamFile(conn, rel: String(path.dropFirst(3)), range: headerValue("Range", header))
+        } else if path.hasPrefix("/art/") {
+            serveArt(conn, album: String(path.dropFirst(5)))
         } else {
             send(conn, status: "404 Not Found", body: Data("Not found".utf8))
+        }
+    }
+
+    // Extracts and caches an album's embedded cover art (off the listener queue).
+    private func serveArt(_ conn: NWConnection, album: String) {
+        let safe = album.split(separator: "/").filter { $0 != ".." }.joined(separator: "/")
+        artLock.lock(); let hit = artCache[safe]; artLock.unlock()
+        if let hit {
+            send(conn, status: "200 OK", contentType: "image/png", body: hit,
+                 extra: ["Cache-Control": "max-age=86400"]); return
+        }
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
+            let dir = self.root.appendingPathComponent(safe)
+            guard dir.path.hasPrefix(self.root.path),
+                  let ffmpeg = BinaryLocator.url(for: .ffmpeg),
+                  let first = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
+                    .filter({ Media.isAudio($0) })
+                    .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else {
+                self.send(conn, status: "404 Not Found", body: Data()); return
+            }
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent("snagweb-art-\(abs(safe.hashValue)).png")
+            let p = Process()
+            p.executableURL = ffmpeg
+            p.arguments = ["-v", "error", "-y", "-i", first.path, "-an", "-map", "0:v", "-frames:v", "1", out.path]
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = BinaryLocator.augmentedPath
+            p.environment = env
+            try? p.run(); p.waitUntilExit()
+            guard let data = try? Data(contentsOf: out) else {
+                self.send(conn, status: "404 Not Found", body: Data()); return
+            }
+            self.artLock.lock(); self.artCache[safe] = data; self.artLock.unlock()
+            self.send(conn, status: "200 OK", contentType: "image/png", body: data,
+                      extra: ["Cache-Control": "max-age=86400"])
         }
     }
 
@@ -220,13 +260,17 @@ final class WebServer: ObservableObject {
                 .filter { Media.isMedia($0) }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
             if tracks.isEmpty { continue }
-            rows += "<h2>\(esc(album.lastPathComponent))</h2><ul>"
+            let albEnc = album.lastPathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? album.lastPathComponent
+            let artURL = "/art/\(albEnc)"
+            rows += "<div class=alb><img class=art src=\"\(artURL)\" onerror=\"this.classList.add('ph')\">"
+                + "<h2>\(esc(album.lastPathComponent))</h2></div><ul>"
             for t in tracks {
                 let rel = "\(album.lastPathComponent)/\(t.lastPathComponent)"
                 let enc = rel.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? rel
                 let name = t.deletingPathExtension().lastPathComponent
                 if Media.isAudio(t) {
-                    jsItems.append("{t:\"\(jsEsc(name))\",u:\"/f/\(enc)\"}")
+                    jsItems.append("{t:\"\(jsEsc(name))\",u:\"/f/\(enc)\",a:\"\(artURL)\"}")
                     rows += "<li><button class=pl data-i=\(gi)>▶</button> "
                         + "<span class=nm data-i=\(gi)>\(esc(name))</span> "
                         + "<a class=dl href=\"/f/\(enc)\" download>⬇︎</a></li>"
@@ -242,32 +286,46 @@ final class WebServer: ObservableObject {
         return """
         <!doctype html><html><head><meta charset=utf-8>
         <meta name=viewport content='width=device-width,initial-scale=1'><title>Snag</title><style>
-        body{font-family:-apple-system,system-ui,sans-serif;max-width:760px;margin:0 auto;padding:18px 18px 120px;background:#0f1115;color:#e8e8ea}
+        body{font-family:-apple-system,system-ui,sans-serif;max-width:760px;margin:0 auto;padding:18px 18px 130px;background:#0f1115;color:#e8e8ea}
         a{color:#8aa4ff;text-decoration:none}a:active{opacity:.6}
-        h1{font-size:22px}h2{font-size:15px;margin:22px 0 6px;color:#aab}
-        ul{list-style:none;padding:0} li{margin:2px 0;padding:8px 6px;border-radius:8px;display:flex;align-items:center;gap:10px}
+        h1{font-size:22px;margin:0 0 4px}
+        .alb{display:flex;align-items:center;gap:12px;margin:22px 0 6px}
+        .art{width:46px;height:46px;border-radius:8px;object-fit:cover;background:#242938}
+        .art.ph{background:#242938} h2{font-size:15px;margin:0;color:#cdd}
+        ul{list-style:none;padding:0;margin:0 0 4px} li{margin:2px 0;padding:8px 6px;border-radius:8px;display:flex;align-items:center;gap:10px}
         li.cur{background:#1c2030}
         .pl{background:#2a2f3d;color:#fff;border:0;border-radius:8px;width:34px;height:34px;font-size:13px}
         .nm{flex:1} .dl{opacity:.6;font-size:18px}
+        .btns{display:flex;gap:10px;margin:6px 0 14px}
+        .bg{background:#5b6cff;color:#fff;border:0;border-radius:10px;padding:10px 16px;font-size:15px}
+        .bg.sec{background:#2a2f3d}
         #bar{position:fixed;left:0;right:0;bottom:0;background:#181b22;border-top:1px solid #2a2f3d;padding:8px 14px}
-        #np{font-size:13px;color:#cdd;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .now{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+        #bart{width:38px;height:38px;border-radius:6px;object-fit:cover;background:#242938}
+        #np{font-size:13px;color:#cdd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
         audio{width:100%}
-        .tip{color:#889;font-size:12px;margin:8px 0 16px}
+        .tip{color:#889;font-size:12px;margin:6px 0 12px}
         </style></head><body>
         <h1>📥 Snag library</h1>
-        <p class=tip>Tap ▶ to <b>play here</b> (streams from your Mac — nothing to find). Tap ⬇︎ to download the file (on iPhone it saves to <b>Files → Downloads</b>).</p>
+        <p class=tip>Tap ▶ to <b>play here</b> — streams from your Mac, nothing to find. ⬇︎ downloads the file (iPhone saves to <b>Files → Downloads</b>).</p>
+        <div class=btns><button class=bg id=all>▶ Play all</button><button class="bg sec" id=shuf>🔀 Shuffle</button></div>
         \(rows)
-        <div id=bar><div id=np>—</div><audio id=au controls playsinline></audio></div>
+        <div id=bar><div class=now><img id=bart><div id=np>—</div></div><audio id=au controls playsinline></audio></div>
         <script>
-        const T=\(js);const au=document.getElementById('au');const np=document.getElementById('np');let cur=-1;
-        function mark(){document.querySelectorAll('li.cur').forEach(e=>e.classList.remove('cur'));
-          const b=document.querySelector('.pl[data-i="'+cur+'"]');if(b)b.closest('li').classList.add('cur');}
-        function playAt(i){if(i<0||i>=T.length)return;cur=i;au.src=T[i].u;au.play();np.textContent=T[i].t;mark();
+        const T=\(js);const au=document.getElementById('au'),np=document.getElementById('np'),bart=document.getElementById('bart');
+        let order=T.map((_,i)=>i),pos=-1;
+        function mark(cur){document.querySelectorAll('li.cur').forEach(e=>e.classList.remove('cur'));
           document.querySelectorAll('.pl').forEach(b=>b.textContent='▶');
-          const b=document.querySelector('.pl[data-i="'+i+'"]');if(b)b.textContent='⏸';}
+          const b=document.querySelector('.pl[data-i="'+cur+'"]');if(b){b.textContent='⏸';b.closest('li').classList.add('cur');}}
+        function playPos(p){if(p<0||p>=order.length)return;pos=p;const cur=order[p];
+          au.src=T[cur].u;au.play();np.textContent=T[cur].t;bart.src=T[cur].a;mark(cur);}
+        function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
         document.querySelectorAll('.pl').forEach(b=>b.addEventListener('click',()=>{const i=+b.dataset.i;
-          if(i===cur){if(au.paused){au.play();b.textContent='⏸';}else{au.pause();b.textContent='▶';}}else playAt(i);}));
-        au.addEventListener('ended',()=>{if(cur+1<T.length)playAt(cur+1);});
+          if(order[pos]===i){if(au.paused){au.play();b.textContent='⏸';}else{au.pause();b.textContent='▶';}}
+          else{order=T.map((_,k)=>k);playPos(i);}}));
+        document.getElementById('all').onclick=()=>{order=T.map((_,k)=>k);playPos(0);};
+        document.getElementById('shuf').onclick=()=>{order=shuffle(T.map((_,k)=>k));playPos(0);};
+        au.addEventListener('ended',()=>{if(pos+1<order.length)playPos(pos+1);});
         </script></body></html>
         """
     }
