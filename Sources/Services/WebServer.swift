@@ -149,9 +149,28 @@ final class WebServer: ObservableObject {
                 items.append(["path": "\(album.lastPathComponent)/\(t.lastPathComponent)", "size": size])
             }
         }
-        let obj: [String: Any] = ["tracks": items]
+        
+        var playlistItems: [[String: Any]] = []
+        if let files = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
+            for f in files where f.pathExtension.lowercased() == "m3u8" {
+                let name = f.deletingPathExtension().lastPathComponent
+                if let content = try? String(contentsOf: f, encoding: .utf8) {
+                    var plTracks: [String] = []
+                    for line in content.split(separator: "\n") {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+                        plTracks.append(trimmed)
+                    }
+                    if !plTracks.isEmpty {
+                        playlistItems.append(["name": name, "tracks": plTracks])
+                    }
+                }
+            }
+        }
+        
+        let obj: [String: Any] = ["tracks": items, "playlists": playlistItems]
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
-              let s = String(data: data, encoding: .utf8) else { return "{\"tracks\":[]}" }
+              let s = String(data: data, encoding: .utf8) else { return "{\"tracks\":[],\"playlists\":[]}" }
         return s
     }
 

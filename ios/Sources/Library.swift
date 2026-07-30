@@ -20,17 +20,8 @@ enum Importer {
     }
 
     /// Copy a file into the app's Media store and read its metadata.
-    static func makeTrack(from src: URL) async -> Track? {
-        let name = uniqueAudioName(src.lastPathComponent)
-        let audioRel = "Audio/\(name)"
-        let dest = Storage.media.appendingPathComponent(audioRel)
-        do {
-            if !FileManager.default.fileExists(atPath: dest.path) {
-                try FileManager.default.copyItem(at: src, to: dest)
-            }
-        } catch { return nil }
-
-        let asset = AVURLAsset(url: dest)
+    static func makeTrack(from src: URL, albumSubfolder: String? = nil) async -> Track? {
+        let asset = AVURLAsset(url: src)
         var title = src.deletingPathExtension().lastPathComponent
         var artist = "", album = "", genre = ""
         var artworkData: Data?
@@ -66,6 +57,20 @@ enum Importer {
         if album.isEmpty { album = "Unknown Album" }
         if artist.isEmpty { artist = "Unknown Artist" }
 
+        let subfolder = albumSubfolder ?? album
+        let sanitizedSub = sanitize(subfolder)
+        let name = uniqueAudioName(src.lastPathComponent, in: sanitizedSub)
+        let audioRel = "Audio/\(sanitizedSub)/\(name)"
+        let dest = Storage.media.appendingPathComponent(audioRel)
+        
+        do {
+            let parent = dest.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.copyItem(at: src, to: dest)
+            }
+        } catch { return nil }
+
         var artRel: String?
         if let data = artworkData {
             let key = album == "Unknown Album" ? title : album
@@ -83,9 +88,16 @@ enum Importer {
     static func makeTrack(from item: MPMediaItem) async -> Track? {
         guard let src = item.assetURL else { return nil }
         let stem = sanitize(item.title ?? "Song")
-        let name = uniqueAudioName("\(stem).m4a")
-        let audioRel = "Audio/\(name)"
+        let albumTitle = item.albumTitle ?? "Unknown Album"
+        let sanitizedSub = sanitize(albumTitle)
+        let name = uniqueAudioName("\(stem).m4a", in: sanitizedSub)
+        let audioRel = "Audio/\(sanitizedSub)/\(name)"
         let dest = Storage.media.appendingPathComponent(audioRel)
+        
+        do {
+            let parent = dest.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        } catch { return nil }
 
         let asset = AVURLAsset(url: src)
         guard let ex = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else { return nil }
@@ -108,7 +120,7 @@ enum Importer {
 
         return Track(title: item.title ?? "Unknown",
                      artist: item.artist ?? "Unknown Artist",
-                     album: item.albumTitle ?? "Unknown Album",
+                     album: albumTitle,
                      genre: item.genre ?? "",
                      relPath: audioRel, artworkRel: artRel,
                      duration: item.playbackDuration, trackNo: item.albumTrackNumber)
@@ -118,8 +130,9 @@ enum Importer {
         s.components(separatedBy: CharacterSet(charactersIn: "/\\:")).joined(separator: "-")
     }
 
-    private static func uniqueAudioName(_ name: String) -> String {
-        let dir = Storage.media.appendingPathComponent("Audio")
+    private static func uniqueAudioName(_ name: String, in subfolder: String? = nil) -> String {
+        var dir = Storage.media.appendingPathComponent("Audio")
+        if let sub = subfolder { dir = dir.appendingPathComponent(sub) }
         var candidate = name, i = 1
         while FileManager.default.fileExists(atPath: dir.appendingPathComponent(candidate).path) {
             let base = (name as NSString).deletingPathExtension

@@ -489,7 +489,10 @@ struct SyncView: View {
 
     private func run() async {
         Haptics.light()
-        let existing = Set(tracks.map { ($0.relPath as NSString).lastPathComponent })
+        let existing = Set(tracks.map {
+            let filename = ($0.relPath as NSString).lastPathComponent
+            return "\($0.album.lowercased())/\(filename.lowercased())"
+        })
         await client.sync(host: host, pin: pin, existingFilenames: existing, into: ctx)
         if client.progress >= 1 { Haptics.success() }
     }

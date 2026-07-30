@@ -8,7 +8,20 @@ final class SyncClient: ObservableObject {
     @Published var progress = 0.0
     @Published var busy = false
 
-    struct Manifest: Decodable { let tracks: [Item]; struct Item: Decodable { let path: String; let size: Int } }
+    struct Manifest: Decodable {
+        let tracks: [Item]
+        let playlists: [PlaylistManifest]?
+        
+        struct Item: Decodable {
+            let path: String
+            let size: Int
+        }
+        
+        struct PlaylistManifest: Decodable {
+            let name: String
+            let tracks: [String]
+        }
+    }
 
     func sync(host rawHost: String, pin: String, existingFilenames: Set<String>, into ctx: ModelContext) async {
         busy = true; progress = 0; status = "Connecting…"
@@ -37,9 +50,12 @@ final class SyncClient: ObservableObject {
 
         // 3) download the tracks we don't have yet
         let todo = manifest.tracks.filter {
-            !existingFilenames.contains(($0.path as NSString).lastPathComponent)
+            !existingFilenames.contains($0.path.lowercased())
         }
-        if todo.isEmpty { status = "Up to date — \(manifest.tracks.count) tracks."; progress = 1; return }
+        if todo.isEmpty {
+            await syncPlaylists(manifest.playlists, into: ctx)
+            status = "Up to date — \(manifest.tracks.count) tracks."; progress = 1; return
+        }
 
         var done = 0
         for item in todo {
@@ -47,16 +63,63 @@ final class SyncClient: ObservableObject {
             let enc = item.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? item.path
             guard let fileURL = URL(string: "\(base)/f/\(enc)"),
                   let (tmp, _) = try? await URLSession.shared.download(from: fileURL) else { continue }
+            
+            let pathParts = item.path.split(separator: "/")
+            let serverAlbum = pathParts.count >= 2 ? String(pathParts[0]) : nil
+            
             let named = FileManager.default.temporaryDirectory
                 .appendingPathComponent((item.path as NSString).lastPathComponent)
             try? FileManager.default.removeItem(at: named)
             try? FileManager.default.moveItem(at: tmp, to: named)
-            if let track = await Importer.makeTrack(from: named) { ctx.insert(track); done += 1 }
+            if let track = await Importer.makeTrack(from: named, albumSubfolder: serverAlbum) { ctx.insert(track); done += 1 }
             try? FileManager.default.removeItem(at: named)
             progress = Double(done) / Double(todo.count)
         }
         try? ctx.save()
+        
+        await syncPlaylists(manifest.playlists, into: ctx)
+        
         status = "Synced \(done) new track\(done == 1 ? "" : "s") 🎉"
         progress = 1
+    }
+
+    private func syncPlaylists(_ serverPlaylists: [Manifest.PlaylistManifest]?, into ctx: ModelContext) async {
+        guard let serverPlaylists, !serverPlaylists.isEmpty else { return }
+        
+        status = "Syncing playlists…"
+        
+        // Fetch all tracks currently in the local SwiftData store to build a lookup map
+        let allTracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
+        var trackLookup: [String: Track] = [:]
+        for t in allTracks {
+            let filename = (t.relPath as NSString).lastPathComponent
+            let key = "\(t.album.lowercased())/\(filename.lowercased())"
+            trackLookup[key] = t
+        }
+        
+        // Fetch existing local playlists to avoid duplicating them
+        let existingPlaylists = (try? ctx.fetch(FetchDescriptor<Playlist>())) ?? []
+        var playlistMap = Dictionary(uniqueKeysWithValues: existingPlaylists.map { ($0.name, $0) })
+        
+        for p in serverPlaylists {
+            var matchedIDs: [UUID] = []
+            for serverTrackPath in p.tracks {
+                let key = serverTrackPath.lowercased()
+                if let t = trackLookup[key] {
+                    matchedIDs.append(t.id)
+                }
+            }
+            
+            guard !matchedIDs.isEmpty else { continue }
+            
+            if let localPlaylist = playlistMap[p.name] {
+                localPlaylist.trackIDs = matchedIDs
+            } else {
+                let newPlaylist = Playlist(name: p.name, trackIDs: matchedIDs)
+                ctx.insert(newPlaylist)
+                playlistMap[p.name] = newPlaylist
+            }
+        }
+        try? ctx.save()
     }
 }
