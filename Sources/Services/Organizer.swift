@@ -14,6 +14,30 @@ struct Organizer {
         return u
     }
 
+    private static func parseSubtitlesToLyrics(_ content: String) -> String {
+        let lines = content.components(separatedBy: .newlines)
+        var lyricLines: [String] = []
+        
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed == "WEBVTT" || trimmed.hasPrefix("Kind:") || trimmed.hasPrefix("Language:") {
+                continue
+            }
+            if CharacterSet(charactersIn: trimmed).isSubset(of: .decimalDigits) {
+                continue
+            }
+            if trimmed.contains("-->") {
+                continue
+            }
+            let cleanLine = trimmed.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            if !cleanLine.isEmpty {
+                lyricLines.append(cleanLine)
+            }
+        }
+        
+        return lyricLines.joined(separator: "\n")
+    }
+
     // Tag every audio file in the album folder with album / album_artist / track,
     // preserving audio + cover art. Reports 0…1 progress.
     static func tagAlbum(_ albumDir: URL,
@@ -38,12 +62,32 @@ struct Organizer {
                         "-metadata", "track=\(trackNum)"]
             if let g = genre { meta += ["-metadata", "genre=\(g)"] }
 
+            // Look for matching subtitle file
+            let baseName = file.deletingPathExtension().lastPathComponent
+            let allFilesInFolder = (try? fm.contentsOfDirectory(at: albumDir, includingPropertiesForKeys: nil)) ?? []
+            let subtitleFile = allFilesInFolder.first { f in
+                let fName = f.lastPathComponent
+                return fName.hasPrefix(baseName) && (f.pathExtension.lowercased() == "srt" || f.pathExtension.lowercased() == "vtt" || f.pathExtension.lowercased() == "lrc")
+            }
+
+            if let subFile = subtitleFile, let content = try? String(contentsOf: subFile, encoding: .utf8) {
+                let cleanLyrics = parseSubtitlesToLyrics(content)
+                if !cleanLyrics.isEmpty {
+                    meta += ["-metadata", "lyrics=\(cleanLyrics)"]
+                }
+            }
+
             let args = ["-v", "error", "-y", "-i", file.path,
                         "-map", "0", "-map", "-0:d", "-c", "copy"] + meta + [tmp.path]
             _ = try await ProcessRunner.capture(exe, args)
             // swap tmp -> original
             try? fm.removeItem(at: file)
             try fm.moveItem(at: tmp, to: file)
+
+            // Clean up sidecar subtitle file
+            if let subFile = subtitleFile {
+                try? fm.removeItem(at: subFile)
+            }
 
             onProgress(Double(i + 1) / Double(files.count), base)
         }

@@ -124,7 +124,7 @@ struct PlaylistDetailView: View {
                 ForEach(Array(items.enumerated()), id: \.element.id) { pair in
                     Button { Haptics.light(); player.play(items, startAt: pair.offset) } label: {
                         TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).trackMenu(pair.element)
                 }
                 .onMove { from, to in
                     playlist.trackIDs.move(fromOffsets: from, toOffset: to); try? ctx.save()
@@ -153,6 +153,13 @@ struct TrackMenu: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contextMenu {
+                Button { Haptics.light(); PlayerEngine.shared.playNext(track) } label: {
+                    Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                }
+                Button { Haptics.light(); PlayerEngine.shared.addToQueue(track) } label: {
+                    Label("Add to Queue", systemImage: "text.append")
+                }
+                Divider()
                 Button { Haptics.rigid(); PlayerEngine.shared.playSimilar(to: track) } label: {
                     Label("More Like This", systemImage: "wand.and.stars")
                 }
@@ -168,8 +175,31 @@ struct TrackMenu: ViewModifier {
     }
 }
 
+/// Leading/trailing swipe actions for a track row in a List (Play Next / Queue / Love).
+struct TrackSwipeActions: ViewModifier {
+    let track: Track
+    @Environment(\.modelContext) private var ctx
+    func body(content: Content) -> some View {
+        content
+            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                Button { Haptics.light(); PlayerEngine.shared.playNext(track) } label: {
+                    Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                }.tint(.indigo)
+                Button { Haptics.light(); PlayerEngine.shared.addToQueue(track) } label: {
+                    Label("Queue", systemImage: "text.append")
+                }.tint(.purple)
+            }
+            .swipeActions(edge: .trailing) {
+                Button { track.loved.toggle(); try? ctx.save(); Haptics.rigid() } label: {
+                    Label("Love", systemImage: track.loved ? "heart.slash" : "heart")
+                }.tint(.pink)
+            }
+    }
+}
+
 extension View {
     func trackMenu(_ track: Track) -> some View { modifier(TrackMenu(track: track)) }
+    func trackSwipeActions(_ track: Track) -> some View { modifier(TrackSwipeActions(track: track)) }
 }
 
 struct AddToPlaylistSheet: View {

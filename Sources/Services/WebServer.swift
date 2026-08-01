@@ -150,10 +150,14 @@ final class WebServer: ObservableObject {
             }
         }
         
+        // Only expose hand-made playlists — skip Snag's own auto-generated ones
+        // (the per-album mirrors named after each album folder, and "00 All Songs").
+        let albumNames = Set(albums.map { $0.lastPathComponent })
         var playlistItems: [[String: Any]] = []
         if let files = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
             for f in files where f.pathExtension.lowercased() == "m3u8" {
                 let name = f.deletingPathExtension().lastPathComponent
+                if name == "00 All Songs" || albumNames.contains(name) { continue }
                 if let content = try? String(contentsOf: f, encoding: .utf8) {
                     var plTracks: [String] = []
                     for line in content.split(separator: "\n") {

@@ -96,6 +96,7 @@ struct LibraryView: View {
     @State private var recentlyPlayed: [Track] = []
     @State private var discover: [Track] = []
     @State private var forYou: [Recommender.Mix] = []
+    @State private var showSettings = false
 
     var body: some View {
         Group {
@@ -118,6 +119,7 @@ struct LibraryView: View {
                         if discover.count >= 3 { TrackShelf(title: "Discover", tracks: discover) }
                         if recentlyPlayed.count >= 3 { TrackShelf(title: "Recently Played", tracks: recentlyPlayed) }
                         if recent.count >= 4 { TrackShelf(title: "Recently Added", tracks: recent) }
+                        browseSection
                         albumsSection
                     }
                     .padding(.horizontal)
@@ -127,7 +129,13 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
-        .toolbar { ImportButton() }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { showSettings = true } label: { Image(systemName: "gearshape") }
+            }
+            ToolbarItem(placement: .topBarTrailing) { ImportButton() }
+        }
+        .sheet(isPresented: $showSettings) { SettingsView() }
         .onChange(of: tracks, initial: true) { _, newTracks in
             albums = LibraryGrouping.albums(newTracks)
             recent = Array(newTracks.prefix(12))
@@ -195,6 +203,18 @@ struct LibraryView: View {
                 }.padding(.vertical, 2)
             }
         }
+    }
+
+    private var browseSection: some View {
+        VStack(spacing: 0) {
+            NavigationLink { AllSongsView() } label: { BrowseRow(icon: "music.note", title: "Songs", count: tracks.count) }
+            Divider().padding(.leading, 56)
+            NavigationLink { ArtistsView() } label: { BrowseRow(icon: "music.mic", title: "Artists", count: LibraryGrouping.artists(tracks).count) }
+            Divider().padding(.leading, 56)
+            NavigationLink { GenresView() } label: { BrowseRow(icon: "guitars", title: "Genres", count: LibraryGrouping.genres(tracks).count) }
+        }
+        .buttonStyle(.plain)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var albumsSection: some View {
@@ -456,7 +476,7 @@ struct SearchView: View {
                     ForEach(Array(results.enumerated()), id: \.element.id) { pair in
                         Button { Haptics.light(); player.play(results, startAt: pair.offset) } label: {
                             TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
-                        }.buttonStyle(.plain).trackMenu(pair.element)
+                        }.buttonStyle(.plain).trackMenu(pair.element).trackSwipeActions(pair.element)
                     }
                 }.listStyle(.plain)
             }
@@ -540,10 +560,14 @@ struct SyncView: View {
 
     private func run() async {
         Haptics.light()
-        let existing = Set(tracks.map {
-            let filename = ($0.relPath as NSString).lastPathComponent
-            return "\($0.album.lowercased())/\(filename.lowercased())"
-        })
+        var existing = Set<String>()
+        for t in tracks {
+            // exact original Mac path (robust for album names with / \ : etc.)…
+            if let sp = t.sourcePath, !sp.isEmpty { existing.insert(sp.lowercased()) }
+            // …plus album/filename fallback for tracks that predate sourcePath
+            let filename = (t.relPath as NSString).lastPathComponent
+            existing.insert("\(t.album.lowercased())/\(filename.lowercased())")
+        }
         await client.sync(host: host, pin: pin, existingFilenames: existing, into: ctx)
         if client.progress >= 1 { Haptics.success() }
     }
@@ -600,6 +624,8 @@ struct NowPlayingView: View {
     @State private var showingQueue = false
     @State private var showingPlaylistSheet = false
     @State private var activeMenuTrack: Track? = nil
+    @State private var artDrag: CGFloat = 0
+    @State private var showingLyrics = false
 
     var body: some View {
             VStack(spacing: 0) {
@@ -607,12 +633,54 @@ struct NowPlayingView: View {
 
                 Spacer(minLength: 16)
 
-                SquareArtwork(url: player.current?.artworkURL, corner: 22)
-                    .frame(maxWidth: 340, maxHeight: 340)
-                    .frame(maxWidth: .infinity)
-                    .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
-                    .scaleEffect(player.isPlaying ? 1.0 : 0.84)
-                    .animation(.bouncy, value: player.isPlaying)
+                ZStack {
+                    if showingLyrics, let lyrics = player.current?.lyrics, !lyrics.isEmpty {
+                        ScrollView {
+                            Text(lyrics)
+                                .font(.title3.weight(.medium))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                                .padding(.vertical, 24)
+                                .padding(.horizontal, 20)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .frame(maxWidth: 340, maxHeight: 340)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+                        .onTapGesture {
+                            withAnimation(.snappy) { showingLyrics = false }
+                        }
+                    } else {
+                        SquareArtwork(url: player.current?.artworkURL, corner: 22)
+                            .frame(maxWidth: 340, maxHeight: 340)
+                            .frame(maxWidth: .infinity)
+                            .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+                            .scaleEffect(player.isPlaying ? 1.0 : 0.84)
+                            .animation(.bouncy, value: player.isPlaying)
+                            .offset(x: artDrag)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 20)
+                                    .onChanged { v in
+                                        if abs(v.translation.width) > abs(v.translation.height) { artDrag = v.translation.width / 3 }
+                                    }
+                                    .onEnded { v in
+                                        let dx = v.translation.width, dy = v.translation.height
+                                        withAnimation(.snappy) { artDrag = 0 }
+                                        if abs(dx) > abs(dy) {
+                                            if dx < -60 { Haptics.soft(); player.next(userInitiated: true) }
+                                            else if dx > 60 { Haptics.soft(); player.previous() }
+                                        } else if dy > 90 { dismiss() }
+                                    }
+                            )
+                            .onTapGesture {
+                                if let lyrics = player.current?.lyrics, !lyrics.isEmpty {
+                                    withAnimation(.snappy) { showingLyrics = true }
+                                }
+                            }
+                    }
+                }
 
                 Spacer(minLength: 16)
 
@@ -641,6 +709,14 @@ struct NowPlayingView: View {
                         }.buttonStyle(Pressable(scale: 0.8))
                         
                         Menu {
+                            if let lyrics = player.current?.lyrics, !lyrics.isEmpty {
+                                Button {
+                                    withAnimation(.snappy) { showingLyrics.toggle() }
+                                } label: {
+                                    Label(showingLyrics ? "Hide Lyrics" : "Show Lyrics", systemImage: "quote.bubble")
+                                }
+                            }
+                            
                             Button {
                                 if let current = player.current {
                                     activeMenuTrack = current
@@ -752,6 +828,10 @@ struct NowPlayingView: View {
                     }
                     .font(.title3)
                     .padding(.top, 2)
+
+                    AirPlayButton(tint: UIColor(white: 1, alpha: 0.7))
+                        .frame(width: 44, height: 30)
+                        .padding(.top, 2)
                 }
                 .padding(.horizontal, 34)
 
@@ -897,6 +977,9 @@ struct QueueView: View {
                                 let targetIndex = offset + player.currentQueueIndex + 1
                                 player.removeFromQueue(at: targetIndex)
                             }
+                        }
+                        .onMove { source, dest in
+                            player.moveUpNext(from: source, to: dest)
                         }
                     }
                 } else {

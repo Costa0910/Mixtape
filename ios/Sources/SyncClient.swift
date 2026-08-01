@@ -71,7 +71,7 @@ final class SyncClient: ObservableObject {
                 .appendingPathComponent((item.path as NSString).lastPathComponent)
             try? FileManager.default.removeItem(at: named)
             try? FileManager.default.moveItem(at: tmp, to: named)
-            if let track = await Importer.makeTrack(from: named, albumSubfolder: serverAlbum) { ctx.insert(track); done += 1 }
+            if let track = await Importer.makeTrack(from: named, albumSubfolder: serverAlbum, sourcePath: item.path) { ctx.insert(track); done += 1 }
             try? FileManager.default.removeItem(at: named)
             progress = Double(done) / Double(todo.count)
         }
@@ -92,14 +92,17 @@ final class SyncClient: ObservableObject {
         let allTracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
         var trackLookup: [String: Track] = [:]
         for t in allTracks {
+            // exact match on the original Mac path (robust for any album name)…
+            if let sp = t.sourcePath, !sp.isEmpty { trackLookup[sp.lowercased()] = t }
+            // …plus an album/filename fallback for tracks added another way
             let filename = (t.relPath as NSString).lastPathComponent
-            let key = "\(t.album.lowercased())/\(filename.lowercased())"
-            trackLookup[key] = t
+            trackLookup["\(t.album.lowercased())/\(filename.lowercased())"] = t
         }
         
-        // Fetch existing local playlists to avoid duplicating them
+        // Fetch existing local playlists to avoid duplicating them. Names aren't
+        // unique in the app, so keep the first match rather than trapping on a dup key.
         let existingPlaylists = (try? ctx.fetch(FetchDescriptor<Playlist>())) ?? []
-        var playlistMap = Dictionary(uniqueKeysWithValues: existingPlaylists.map { ($0.name, $0) })
+        var playlistMap = Dictionary(existingPlaylists.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         
         for p in serverPlaylists {
             var matchedIDs: [UUID] = []

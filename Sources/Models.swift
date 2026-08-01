@@ -153,6 +153,7 @@ struct JobConfig: Equatable {
     // audio (music + podcast)
     var format: AudioFormat = .m4a
     var bitrate: String = "320"
+    var embedLyrics: Bool = true
     // video
     var videoQuality: String = "1080"          // 480/720/1080/best
     var videoContainer: String = "mp4"         // mp4/mkv

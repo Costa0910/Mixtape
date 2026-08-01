@@ -20,7 +20,7 @@ enum Importer {
     }
 
     /// Copy a file into the app's Media store and read its metadata.
-    static func makeTrack(from src: URL, albumSubfolder: String? = nil) async -> Track? {
+    static func makeTrack(from src: URL, albumSubfolder: String? = nil, sourcePath: String? = nil) async -> Track? {
         let asset = AVURLAsset(url: src)
         var title = src.deletingPathExtension().lastPathComponent
         var artist = "", album = "", genre = ""
@@ -29,6 +29,10 @@ enum Importer {
 
         if let d = try? await asset.load(.duration) {
             let secs = CMTimeGetSeconds(d); if secs.isFinite { duration = secs }
+        }
+        var lyrics = ""
+        if let l = try? await asset.load(.lyrics) {
+            lyrics = l
         }
         if let items = try? await asset.load(.commonMetadata) {
             for it in items {
@@ -49,6 +53,15 @@ enum Importer {
             search: for id in ids {
                 for item in AVMetadataItem.metadataItems(from: all, filteredByIdentifier: id) {
                     if let s = try? await item.load(.stringValue), !s.isEmpty { genre = s; break search }
+                }
+            }
+        }
+        // lyrics format-specific check
+        if lyrics.isEmpty, let all = try? await asset.load(.metadata) {
+            let ids: [AVMetadataIdentifier] = [.iTunesMetadataLyrics, .id3MetadataUnsynchronizedLyric]
+            search: for id in ids {
+                for item in AVMetadataItem.metadataItems(from: all, filteredByIdentifier: id) {
+                    if let s = try? await item.load(.stringValue), !s.isEmpty { lyrics = s; break search }
                 }
             }
         }
@@ -80,7 +93,8 @@ enum Importer {
             artRel = rel
         }
         return Track(title: title, artist: artist, album: album, genre: genre,
-                     relPath: audioRel, artworkRel: artRel, duration: duration, trackNo: 0)
+                     relPath: audioRel, artworkRel: artRel, duration: duration, trackNo: 0,
+                     sourcePath: sourcePath, lyrics: lyrics.isEmpty ? nil : lyrics)
     }
 
     /// Build a Track from a song in the phone's Music library, exporting its audio
@@ -123,7 +137,8 @@ enum Importer {
                      album: albumTitle,
                      genre: item.genre ?? "",
                      relPath: audioRel, artworkRel: artRel,
-                     duration: item.playbackDuration, trackNo: item.albumTrackNumber)
+                     duration: item.playbackDuration, trackNo: item.albumTrackNumber,
+                     lyrics: item.lyrics)
     }
 
     private static func sanitize(_ s: String) -> String {
@@ -152,12 +167,40 @@ struct AlbumGroup: Identifiable {
     var artworkURL: URL? { tracks.first(where: { $0.artworkURL != nil })?.artworkURL }
 }
 
+// Group tracks by artist / genre for browsing.
+struct ArtistGroup: Identifiable {
+    var id: String { name }
+    let name: String
+    let tracks: [Track]
+    var albumCount: Int { Set(tracks.map { $0.album }).count }
+    var artworkURL: URL? { tracks.first(where: { $0.artworkURL != nil })?.artworkURL }
+}
+
+struct GenreGroup: Identifiable {
+    var id: String { name }
+    let name: String
+    let tracks: [Track]
+    var artworkURL: URL? { tracks.first(where: { $0.artworkURL != nil })?.artworkURL }
+}
+
 enum LibraryGrouping {
     static func albums(_ tracks: [Track]) -> [AlbumGroup] {
         Dictionary(grouping: tracks, by: { $0.album })
             .map { AlbumGroup(name: $0.key,
                               artist: $0.value.first?.artist ?? "",
                               tracks: $0.value.sorted { $0.relPath < $1.relPath }) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    static func artists(_ tracks: [Track]) -> [ArtistGroup] {
+        Dictionary(grouping: tracks, by: { $0.artist })
+            .map { ArtistGroup(name: $0.key, tracks: $0.value) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    static func genres(_ tracks: [Track]) -> [GenreGroup] {
+        Dictionary(grouping: tracks, by: { $0.genre.isEmpty ? "Unknown" : $0.genre })
+            .map { GenreGroup(name: $0.key, tracks: $0.value) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 }

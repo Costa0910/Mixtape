@@ -78,6 +78,9 @@ struct Downloader {
             } else {
                 args += ["-f", "bestaudio[ext=m4a]/bestaudio"]
             }
+            if config.embedLyrics {
+                args += ["--write-subs", "--write-auto-subs", "--sub-format", "srt", "--sub-langs", config.subtitleLang]
+            }
         }
         if config.embedThumbnail { args += ["--embed-thumbnail"] }
         args += ["--embed-metadata", "--newline"]

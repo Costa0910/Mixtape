@@ -15,6 +15,8 @@ final class Track {
     var duration: Double
     var dateAdded: Date
     var trackNo: Int
+    var sourcePath: String?      // original Mac manifest path (e.g. "Album/track.m4a"), for exact re-sync dedup
+    var lyrics: String?          // song lyrics
 
     // listening stats (private, on-device)
     var playCount: Int
@@ -23,7 +25,7 @@ final class Track {
     var loved: Bool
 
     init(id: UUID = UUID(), title: String, artist: String, album: String, genre: String,
-         relPath: String, artworkRel: String?, duration: Double, trackNo: Int) {
+         relPath: String, artworkRel: String?, duration: Double, trackNo: Int, sourcePath: String? = nil, lyrics: String? = nil) {
         self.id = id
         self.title = title
         self.artist = artist
@@ -33,6 +35,8 @@ final class Track {
         self.artworkRel = artworkRel
         self.duration = duration
         self.trackNo = trackNo
+        self.sourcePath = sourcePath
+        self.lyrics = lyrics
         self.dateAdded = Date()
         self.playCount = 0
         self.skipCount = 0
