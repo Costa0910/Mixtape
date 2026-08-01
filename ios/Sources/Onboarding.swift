@@ -13,7 +13,7 @@ struct OnboardingView: View {
             Spacer()
             Image(systemName: "music.note.house.fill")
                 .font(.system(size: 68))
-                .foregroundStyle(LinearGradient(colors: [.indigo, .purple], startPoint: .top, endPoint: .bottom))
+                .foregroundStyle(.primary)
             Text("Welcome to Snag")
                 .font(.largeTitle.bold()).tracking(-0.5).padding(.top, 20)
             Text("Your music, all in one place. Snag can bring in the songs already on your iPhone — and sync more from your Mac over Wi‑Fi.")
@@ -42,7 +42,7 @@ struct OnboardingView: View {
             .padding(.horizontal, 28).padding(.bottom, 28)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.ignoresSafeArea())
+        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
     }
 
     private func allowAndImport() async {

@@ -3,8 +3,27 @@ import AVFoundation
 import SwiftData
 import MediaPlayer
 import UIKit
+import CryptoKit
 
 enum Importer {
+    private static let lyricsScanRegistryKey = "lyricsMetadataScanV1"
+    private static let artworkRepairRegistryKey = "contentAddressedArtworkV1"
+
+    private struct LyricsCandidate: Sendable {
+        let id: UUID
+        let url: URL
+    }
+
+    private struct ArtworkCandidate: Sendable {
+        let id: UUID
+        let url: URL
+    }
+
+    private struct LyricsScanResult: Sendable {
+        let attemptedIDs: [UUID]
+        let lyricsByID: [UUID: String]
+    }
+
     /// Import audio file URLs into the library. Returns how many were added.
     @MainActor
     static func importFiles(_ urls: [URL], into ctx: ModelContext) async -> Int {
@@ -20,7 +39,8 @@ enum Importer {
     }
 
     /// Copy a file into the app's Media store and read its metadata.
-    static func makeTrack(from src: URL, albumSubfolder: String? = nil, sourcePath: String? = nil) async -> Track? {
+    static func makeTrack(from src: URL, albumSubfolder: String? = nil, sourcePath: String? = nil,
+                          sourceSize: Int64? = nil) async -> Track? {
         let asset = AVURLAsset(url: src)
         var title = src.deletingPathExtension().lastPathComponent
         var artist = "", album = "", genre = ""
@@ -30,10 +50,8 @@ enum Importer {
         if let d = try? await asset.load(.duration) {
             let secs = CMTimeGetSeconds(d); if secs.isFinite { duration = secs }
         }
-        var lyrics = ""
-        if let l = try? await asset.load(.lyrics) {
-            lyrics = l
-        }
+        let allMetadata = (try? await asset.load(.metadata)) ?? []
+        let lyrics = await resolvedLyrics(from: asset, metadata: allMetadata) ?? ""
         if let items = try? await asset.load(.commonMetadata) {
             for it in items {
                 guard let key = it.commonKey else { continue }
@@ -48,20 +66,11 @@ enum Importer {
             }
         }
         // genre usually lives in format-specific (iTunes/ID3) metadata, not the common set
-        if genre.isEmpty, let all = try? await asset.load(.metadata) {
+        if genre.isEmpty {
             let ids: [AVMetadataIdentifier] = [.iTunesMetadataUserGenre, .iTunesMetadataPredefinedGenre, .id3MetadataContentType]
             search: for id in ids {
-                for item in AVMetadataItem.metadataItems(from: all, filteredByIdentifier: id) {
+                for item in AVMetadataItem.metadataItems(from: allMetadata, filteredByIdentifier: id) {
                     if let s = try? await item.load(.stringValue), !s.isEmpty { genre = s; break search }
-                }
-            }
-        }
-        // lyrics format-specific check
-        if lyrics.isEmpty, let all = try? await asset.load(.metadata) {
-            let ids: [AVMetadataIdentifier] = [.iTunesMetadataLyrics, .id3MetadataUnsynchronizedLyric]
-            search: for id in ids {
-                for item in AVMetadataItem.metadataItems(from: all, filteredByIdentifier: id) {
-                    if let s = try? await item.load(.stringValue), !s.isEmpty { lyrics = s; break search }
                 }
             }
         }
@@ -84,17 +93,165 @@ enum Importer {
             }
         } catch { return nil }
 
-        var artRel: String?
-        if let data = artworkData {
-            let key = album == "Unknown Album" ? title : album
-            let rel = "Artwork/\(abs(key.hashValue)).jpg"
-            let out = Storage.media.appendingPathComponent(rel)
-            if !FileManager.default.fileExists(atPath: out.path) { try? data.write(to: out) }
-            artRel = rel
-        }
+        let artRel = artworkData.flatMap(storeArtwork)
+        let normalizationGainDB = await Task.detached(priority: .utility) {
+            LoudnessAnalyzer.analyze(dest) ?? 0
+        }.value
         return Track(title: title, artist: artist, album: album, genre: genre,
                      relPath: audioRel, artworkRel: artRel, duration: duration, trackNo: 0,
-                     sourcePath: sourcePath, lyrics: lyrics.isEmpty ? nil : lyrics)
+                     sourcePath: sourcePath, sourceSize: sourceSize, lyrics: lyrics.isEmpty ? nil : lyrics,
+                     normalizationGainDB: normalizationGainDB)
+    }
+
+    /// Artwork filenames are derived from the image bytes, not an album-name
+    /// hash. Different covers can therefore never alias the same cached file,
+    /// while genuinely identical covers are safely shared.
+    static func artworkRelativePath(for data: Data) -> String {
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return "Artwork/\(digest).jpg"
+    }
+
+    private static func storeArtwork(_ data: Data) -> String? {
+        let rel = artworkRelativePath(for: data)
+        let out = Storage.media.appendingPathComponent(rel)
+        do {
+            if !FileManager.default.fileExists(atPath: out.path) {
+                try data.write(to: out, options: .atomic)
+            }
+            return rel
+        } catch {
+            return nil
+        }
+    }
+
+    /// Repairs libraries imported by builds that keyed artwork only by album
+    /// title. Metadata reads and file hashing stay off MainActor; only the final
+    /// SwiftData property updates are applied to the visible model.
+    @MainActor
+    static func repairArtworkIfNeeded(in tracks: [Track], context: ModelContext) async -> Int {
+        guard !UserDefaults.standard.bool(forKey: artworkRepairRegistryKey), !tracks.isEmpty else { return 0 }
+        let candidates = tracks.map { ArtworkCandidate(id: $0.id, url: $0.url) }
+
+        let repaired = await Task.detached(priority: .utility) { () async -> [UUID: String] in
+            var result: [UUID: String] = [:]
+            for candidate in candidates {
+                guard !Task.isCancelled else { return result }
+                let asset = AVURLAsset(url: candidate.url)
+                guard let metadata = try? await asset.load(.commonMetadata) else { continue }
+                for item in metadata where item.commonKey == .commonKeyArtwork {
+                    if let data = try? await item.load(.dataValue),
+                       let rel = storeArtwork(data) {
+                        result[candidate.id] = rel
+                        break
+                    }
+                }
+            }
+            return result
+        }.value
+
+        guard !Task.isCancelled else { return 0 }
+        var changed = 0
+        for track in tracks {
+            if let rel = repaired[track.id], track.artworkRel != rel {
+                track.artworkRel = rel
+                changed += 1
+            }
+        }
+        if changed > 0 { try? context.save() }
+        UserDefaults.standard.set(true, forKey: artworkRepairRegistryKey)
+        return changed
+    }
+
+    /// Re-reads local files that predate lyrics support. Pull-to-refresh calls
+    /// this so existing synced music can gain embedded or description fallback
+    /// text without being downloaded again.
+    @MainActor
+    static func refreshMissingLyrics(in tracks: [Track], context: ModelContext) async -> Int {
+        let previouslyScanned = Set(
+            (UserDefaults.standard.stringArray(forKey: lyricsScanRegistryKey) ?? [])
+                .compactMap(UUID.init(uuidString:))
+        )
+        let candidates = tracks.compactMap { track -> LyricsCandidate? in
+            guard track.lyrics?.isEmpty != false, !previouslyScanned.contains(track.id) else { return nil }
+            return LyricsCandidate(id: track.id, url: track.url)
+        }
+        guard !candidates.isEmpty else { return 0 }
+
+        // AVAsset metadata inspection can take seconds across a large library.
+        // Keep the entire scan off MainActor and only apply plain results here.
+        let scan = await Task.detached(priority: .utility) {
+            var attemptedIDs: [UUID] = []
+            var lyricsByID: [UUID: String] = [:]
+            for candidate in candidates {
+                guard !Task.isCancelled else { break }
+                let asset = AVURLAsset(url: candidate.url)
+                let metadata = (try? await asset.load(.metadata)) ?? []
+                if let lyrics = await resolvedLyrics(from: asset, metadata: metadata) {
+                    lyricsByID[candidate.id] = lyrics
+                }
+                attemptedIDs.append(candidate.id)
+            }
+            return LyricsScanResult(attemptedIDs: attemptedIDs, lyricsByID: lyricsByID)
+        }.value
+
+        let tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        for (id, lyrics) in scan.lyricsByID { tracksByID[id]?.lyrics = lyrics }
+        let scanned = previouslyScanned.union(scan.attemptedIDs)
+        UserDefaults.standard.set(scanned.map(\.uuidString), forKey: lyricsScanRegistryKey)
+
+        let updated = scan.lyricsByID.count
+        if updated > 0 { try? context.save() }
+        return updated
+    }
+
+    /// Measures older files that were imported before loudness normalization.
+    /// Pull-to-refresh uses this as a one-time, local library upgrade.
+    @MainActor
+    static func refreshMissingAudioAnalysis(in tracks: [Track], context: ModelContext) async -> Int {
+        var updated = 0
+        for track in tracks where track.normalizationGainDB == nil {
+            if Task.isCancelled { break }
+            let url = track.url
+            let gain = await Task.detached(priority: .utility) {
+                LoudnessAnalyzer.analyze(url)
+            }.value
+            track.normalizationGainDB = gain ?? 0
+            updated += 1
+        }
+        if updated > 0 { try? context.save() }
+        return updated
+    }
+
+    private static func resolvedLyrics(from asset: AVURLAsset,
+                                       metadata: [AVMetadataItem]) async -> String? {
+        if let value = try? await asset.load(.lyrics),
+           !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return value
+        }
+
+        let lyricIDs: [AVMetadataIdentifier] = [.iTunesMetadataLyrics, .id3MetadataUnsynchronizedLyric]
+        for id in lyricIDs {
+            for item in AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: id) {
+                if let value = try? await item.load(.stringValue),
+                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return value
+                }
+            }
+        }
+
+        var descriptions: [String] = []
+        for item in metadata {
+            let identifier = item.identifier?.rawValue.lowercased() ?? ""
+            guard identifier.contains("description") || identifier.contains("comment")
+                    || identifier.contains("synopsis") || identifier.contains("information") else { continue }
+            if let value = try? await item.load(.stringValue), !value.isEmpty {
+                descriptions.append(value)
+            }
+        }
+        for description in descriptions {
+            if let fallback = LyricsFallback.content(fromDescription: description) { return fallback }
+        }
+        return nil
     }
 
     /// Build a Track from a song in the phone's Music library, exporting its audio
@@ -115,12 +272,12 @@ enum Importer {
 
         let asset = AVURLAsset(url: src)
         guard let ex = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else { return nil }
-        ex.outputURL = dest
-        ex.outputFileType = .m4a
-        let ok = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            ex.exportAsynchronously { cont.resume(returning: ex.status == .completed) }
+        do {
+            try await ex.export(to: dest, as: .m4a)
+        } catch {
+            try? FileManager.default.removeItem(at: dest)
+            return nil
         }
-        guard ok else { try? FileManager.default.removeItem(at: dest); return nil }
 
         var artRel: String?
         if let img = item.artwork?.image(at: CGSize(width: 600, height: 600)),
@@ -132,16 +289,20 @@ enum Importer {
             artRel = rel
         }
 
+        let normalizationGainDB = await Task.detached(priority: .utility) {
+            LoudnessAnalyzer.analyze(dest) ?? 0
+        }.value
+
         return Track(title: item.title ?? "Unknown",
                      artist: item.artist ?? "Unknown Artist",
                      album: albumTitle,
                      genre: item.genre ?? "",
                      relPath: audioRel, artworkRel: artRel,
                      duration: item.playbackDuration, trackNo: item.albumTrackNumber,
-                     lyrics: item.lyrics)
+                     lyrics: item.lyrics, normalizationGainDB: normalizationGainDB)
     }
 
-    private static func sanitize(_ s: String) -> String {
+    static func sanitize(_ s: String) -> String {
         s.components(separatedBy: CharacterSet(charactersIn: "/\\:")).joined(separator: "-")
     }
 

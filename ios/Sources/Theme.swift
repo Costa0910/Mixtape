@@ -1,6 +1,17 @@
 import SwiftUI
 import UIKit
 
+enum AppLayout {
+    static let pageInset: CGFloat = 16
+    /// The custom iOS 26 dock is 154 pt while the mini-player is present
+    /// (62 mini-player + 8 gap + 72 tabs + 12 outer padding). Scroll containers
+    /// do not reliably inherit that custom inset, so reserve it explicitly plus
+    /// 16 pt of breathing room for the final row/shelf.
+    static let scrollEndPadding: CGFloat = 170
+    static let dockSpacing: CGFloat = 8
+    static let dockBottomPadding: CGFloat = 4
+}
+
 // MARK: - Haptics (reserved for meaningful moments — §13 utility)
 
 enum Haptics {
@@ -18,6 +29,8 @@ extension Animation {
     static let snappy = Animation.spring(response: 0.32, dampingFraction: 1.0)
     /// A little overshoot — only for momentum-carrying interactions.
     static let bouncy = Animation.spring(response: 0.4, dampingFraction: 0.8)
+    /// Geometry-preserving navigation and surface changes.
+    static let settled = Animation.easeInOut(duration: 0.26)
 }
 
 /// Press feedback on pointer-down, springs back on release (§1, §3).
@@ -45,26 +58,50 @@ struct SquareArtwork: View {
     }
 }
 
-/// Blurred, dimmed artwork that fills the screen behind Now Playing (§12 materials,
-/// ambient artwork). Falls back to a calm gradient when there's no cover.
+/// Blurred, dimmed artwork that fills the screen behind Now Playing.
 struct AmbientBackground: View {
     let url: URL?
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         ZStack {
-            Color.black
+            Color(uiColor: .systemBackground)
             ArtworkView(url: url)
                 .scaledToFill()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
                 .blur(radius: 32)
-                .overlay(.ultraThinMaterial)            // reliable frost over the photo
+                .overlay(colorScheme == .dark ? .ultraThinMaterial : .regularMaterial)
                 .overlay(
-                    LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.75)],
+                    LinearGradient(colors: [
+                        Color(uiColor: .systemBackground).opacity(colorScheme == .dark ? 0.22 : 0.36),
+                        Color(uiColor: .systemBackground).opacity(colorScheme == .dark ? 0.72 : 0.82)
+                    ],
                                    startPoint: .top, endPoint: .bottom)
                 )
-                .overlay(Color.black.opacity(0.15))     // keep white text legible
         }
         .ignoresSafeArea()
         .transition(.opacity)
+    }
+}
+
+/// Neutral Liquid Glass with enough density to remain legible over artwork.
+private struct BalancedGlassCard: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
+        } else {
+            content
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(.primary.opacity(0.12), lineWidth: 0.5))
+        }
+    }
+}
+
+extension View {
+    func balancedGlassCard() -> some View {
+        modifier(BalancedGlassCard())
     }
 }

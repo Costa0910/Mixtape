@@ -9,7 +9,6 @@ struct SnagPlayerApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(player)
-                .preferredColorScheme(.dark)
                 .tint(.indigo)
                 .onOpenURL { QuickActions.handle($0) }
         }

@@ -1,8 +1,11 @@
 # Build output
 build/
 build-release/
+build-release-current/
 build-device/
+dist/
 DerivedData/
+ios/build-*/
 *.dmg
 *.zip
 *.app/
@@ -14,6 +17,11 @@ DerivedData/
 
 # Bundled binaries — fetched via Scripts/fetch-tools.sh, not committed
 Tools/bin/
+
+# Local Codex environment and design verification captures
+.codex/
+/*.png
+ios/*.png
 
 # macOS
 .DS_Store

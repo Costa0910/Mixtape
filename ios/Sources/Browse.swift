@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import AVKit
+import MediaPlayer
 
 // MARK: - Library "Browse" section (rows into Songs / Artists / Genres)
 
@@ -40,6 +41,7 @@ struct AllSongsView: View {
     @EnvironmentObject var player: PlayerEngine
     @Query private var tracks: [Track]
     @AppStorage("songSort") private var sortRaw = SongSort.title.rawValue
+    @AppStorage("collectionLayout.songs") private var layout: CollectionLayoutMode = .list
 
     private var sort: SongSort { SongSort(rawValue: sortRaw) ?? .title }
 
@@ -53,21 +55,30 @@ struct AllSongsView: View {
     }
 
     var body: some View {
-        List {
-            ForEach(Array(sorted.enumerated()), id: \.element.id) { pair in
-                Button { Haptics.light(); player.play(sorted, startAt: pair.offset) } label: {
-                    TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
+        Group {
+            if layout == .list {
+                List {
+                    ForEach(Array(sorted.enumerated()), id: \.element.id) { pair in
+                        Button { player.play(sorted, startAt: pair.offset); Haptics.light() } label: {
+                            TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
+                        }
+                        .buttonStyle(.plain)
+                        .trackMenu(pair.element)
+                        .trackSwipeActions(pair.element)
+                    }
                 }
-                .buttonStyle(.plain)
-                .trackMenu(pair.element)
-                .trackSwipeActions(pair.element)
+                .listStyle(.plain)
+            } else {
+                TrackGridView(tracks: sorted, currentTrackID: player.current?.id) { index in
+                    player.play(sorted, startAt: index)
+                }
             }
         }
-        .listStyle(.plain)
         .navigationTitle("Songs").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             HStack {
-                Button { Haptics.rigid(); player.shuffle = true; player.play(sorted, startAt: Int.random(in: 0..<max(sorted.count, 1))) } label: {
+                CollectionLayoutPicker(selection: $layout)
+                Button { player.playShuffled(sorted); Haptics.rigid() } label: {
                     Image(systemName: "shuffle")
                 }.disabled(sorted.isEmpty)
                 Menu {
@@ -86,24 +97,61 @@ struct AllSongsView: View {
 
 struct ArtistsView: View {
     @Query private var tracks: [Track]
+    @AppStorage("collectionLayout.artists") private var layout: CollectionLayoutMode = .list
     private var artists: [ArtistGroup] { LibraryGrouping.artists(tracks) }
 
+    private let columns = [
+        GridItem(.flexible(), spacing: 16),
+        GridItem(.flexible(), spacing: 16)
+    ]
+
     var body: some View {
-        List(artists) { artist in
-            NavigationLink { ArtistDetailView(artist: artist) } label: {
-                HStack(spacing: 12) {
-                    SquareArtwork(url: artist.artworkURL, corner: 24)
-                        .frame(width: 48, height: 48).clipShape(Circle())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(artist.name).font(.body.weight(.medium)).lineLimit(1)
-                        Text("\(artist.tracks.count) song\(artist.tracks.count == 1 ? "" : "s") · \(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s")")
-                            .font(.caption).foregroundStyle(.secondary)
+        Group {
+            if layout == .list {
+                List(artists) { artist in
+                    NavigationLink { ArtistDetailView(artist: artist) } label: {
+                        ArtistListLabel(artist: artist)
                     }
-                }.padding(.vertical, 4)
+                }
+                .listStyle(.plain)
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        ForEach(artists) { artist in
+                            NavigationLink { ArtistDetailView(artist: artist) } label: {
+                                VStack(spacing: 8) {
+                                    SquareArtwork(url: artist.artworkURL, corner: 80).clipShape(Circle())
+                                    Text(artist.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                    Text("\(artist.tracks.count) songs").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(Pressable(scale: 0.97))
+                        }
+                    }
+                    .padding(.horizontal, AppLayout.pageInset)
+                    .padding(.top, 12)
+                    .padding(.bottom, AppLayout.scrollEndPadding)
+                }
             }
         }
-        .listStyle(.plain)
         .navigationTitle("Artists").navigationBarTitleDisplayMode(.inline)
+        .toolbar { CollectionLayoutPicker(selection: $layout) }
+    }
+}
+
+private struct ArtistListLabel: View {
+    let artist: ArtistGroup
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SquareArtwork(url: artist.artworkURL, corner: 24)
+                .frame(width: 48, height: 48).clipShape(Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(artist.name).font(.body.weight(.medium)).lineLimit(1)
+                Text("\(artist.tracks.count) song\(artist.tracks.count == 1 ? "" : "s") · \(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }.padding(.vertical, 4)
     }
 }
 
@@ -117,12 +165,12 @@ struct ArtistDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 12) {
-                    Button { Haptics.rigid(); player.shuffle = false; player.play(artist.tracks, startAt: 0) } label: {
+                    Button { player.shuffle = false; player.play(artist.tracks, startAt: 0); Haptics.rigid() } label: {
                         Label("Play", systemImage: "play.fill")
                             .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
                             .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
                     }.buttonStyle(Pressable())
-                    Button { Haptics.rigid(); player.shuffle = true; player.play(artist.tracks, startAt: 0) } label: {
+                    Button { player.playShuffled(artist.tracks); Haptics.rigid() } label: {
                         Label("Shuffle", systemImage: "shuffle")
                             .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
                             .background(.ultraThinMaterial, in: Capsule())
@@ -137,7 +185,9 @@ struct ArtistDetailView: View {
                     }
                 }
             }
-            .padding()
+            .padding(.horizontal, AppLayout.pageInset)
+            .padding(.top, AppLayout.pageInset)
+            .padding(.bottom, AppLayout.scrollEndPadding)
         }
         .navigationTitle(artist.name).navigationBarTitleDisplayMode(.inline)
     }
@@ -147,67 +197,124 @@ struct ArtistDetailView: View {
 
 struct GenresView: View {
     @Query private var tracks: [Track]
+    @AppStorage("collectionLayout.genres") private var layout: CollectionLayoutMode = .list
     private var genres: [GenreGroup] { LibraryGrouping.genres(tracks) }
 
+    private let columns = [
+        GridItem(.flexible(), spacing: 16),
+        GridItem(.flexible(), spacing: 16)
+    ]
+
     var body: some View {
-        List(genres) { genre in
-            NavigationLink { GenreDetailView(genre: genre) } label: {
-                HStack(spacing: 12) {
-                    SquareArtwork(url: genre.artworkURL, corner: 10).frame(width: 48, height: 48)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(genre.name).font(.body.weight(.medium)).lineLimit(1)
-                        Text("\(genre.tracks.count) song\(genre.tracks.count == 1 ? "" : "s")")
-                            .font(.caption).foregroundStyle(.secondary)
+        Group {
+            if layout == .list {
+                List(genres) { genre in
+                    NavigationLink { GenreDetailView(genre: genre) } label: {
+                        GenreListLabel(genre: genre)
                     }
-                }.padding(.vertical, 4)
+                }
+                .listStyle(.plain)
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        ForEach(genres) { genre in
+                            NavigationLink { GenreDetailView(genre: genre) } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    SquareArtwork(url: genre.artworkURL, corner: 14)
+                                    Text(genre.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                    Text("\(genre.tracks.count) songs").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(Pressable(scale: 0.97))
+                        }
+                    }
+                    .padding(.horizontal, AppLayout.pageInset)
+                    .padding(.top, 12)
+                    .padding(.bottom, AppLayout.scrollEndPadding)
+                }
             }
         }
-        .listStyle(.plain)
         .navigationTitle("Genres").navigationBarTitleDisplayMode(.inline)
+        .toolbar { CollectionLayoutPicker(selection: $layout) }
+    }
+}
+
+private struct GenreListLabel: View {
+    let genre: GenreGroup
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SquareArtwork(url: genre.artworkURL, corner: 10).frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(genre.name).font(.body.weight(.medium)).lineLimit(1)
+                Text("\(genre.tracks.count) song\(genre.tracks.count == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }.padding(.vertical, 4)
     }
 }
 
 struct GenreDetailView: View {
     let genre: GenreGroup
     @EnvironmentObject var player: PlayerEngine
+    @AppStorage("collectionLayout.genreTracks") private var layout: CollectionLayoutMode = .list
 
     var body: some View {
-        List {
-            Section {
-                HStack(spacing: 12) {
-                    Button { Haptics.rigid(); player.shuffle = false; player.play(genre.tracks, startAt: 0) } label: {
-                        Label("Play", systemImage: "play.fill")
-                            .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
-                    }.buttonStyle(Pressable())
-                    Button { Haptics.rigid(); player.shuffle = true; player.play(genre.tracks, startAt: 0) } label: {
-                        Label("Shuffle", systemImage: "shuffle")
-                            .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(.ultraThinMaterial, in: Capsule())
-                    }.buttonStyle(Pressable())
-                }
-                .listRowSeparator(.hidden)
-            }
-            Section {
-                ForEach(Array(genre.tracks.enumerated()), id: \.element.id) { pair in
-                    Button { Haptics.light(); player.play(genre.tracks, startAt: pair.offset) } label: {
-                        TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
+        Group {
+            if layout == .list {
+                List {
+                    Section { playButtons }
+                    Section {
+                        ForEach(Array(genre.tracks.enumerated()), id: \.element.id) { pair in
+                            Button { player.play(genre.tracks, startAt: pair.offset); Haptics.light() } label: {
+                                TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
+                            }
+                            .buttonStyle(.plain)
+                            .trackMenu(pair.element)
+                            .trackSwipeActions(pair.element)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .trackMenu(pair.element)
-                    .trackSwipeActions(pair.element)
+                }
+                .listStyle(.plain)
+            } else {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        playButtons
+                        TrackGridContent(tracks: genre.tracks, currentTrackID: player.current?.id) { index in
+                            player.play(genre.tracks, startAt: index)
+                        }
+                    }
+                    .padding(.horizontal, AppLayout.pageInset)
+                    .padding(.top, 12)
+                    .padding(.bottom, AppLayout.scrollEndPadding)
                 }
             }
         }
-        .listStyle(.plain)
         .navigationTitle(genre.name).navigationBarTitleDisplayMode(.inline)
+        .toolbar { CollectionLayoutPicker(selection: $layout) }
+    }
+
+    private var playButtons: some View {
+        HStack(spacing: 12) {
+            Button { player.shuffle = false; player.play(genre.tracks, startAt: 0); Haptics.rigid() } label: {
+                Label("Play", systemImage: "play.fill")
+                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
+                    .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
+            }.buttonStyle(Pressable())
+            Button { player.playShuffled(genre.tracks); Haptics.rigid() } label: {
+                Label("Shuffle", systemImage: "shuffle")
+                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
+                    .background(.ultraThinMaterial, in: Capsule())
+            }.buttonStyle(Pressable())
+        }
+        .listRowSeparator(.hidden)
     }
 }
 
 // MARK: - AirPlay / output route picker
 
 struct AirPlayButton: UIViewRepresentable {
-    var tint: UIColor = .white
+    var tint: UIColor = .label
     func makeUIView(context: Context) -> AVRoutePickerView {
         let v = AVRoutePickerView()
         v.tintColor = tint
@@ -217,3 +324,77 @@ struct AirPlayButton: UIViewRepresentable {
     }
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
+
+// MARK: - System volume
+
+/// The sanctioned system-volume control. It follows hardware-button changes
+/// and the active output route instead of applying a second gain to the track.
+struct SystemVolumeControl: View {
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "speaker.fill")
+                .frame(width: 16, height: 32, alignment: .center)
+                .accessibilityHidden(true)
+            SystemVolumeSlider()
+                .frame(maxWidth: .infinity)
+                .frame(height: 32, alignment: .center)
+                .accessibilityLabel("Volume")
+            Image(systemName: "speaker.wave.3.fill")
+                .frame(width: 16, height: 32, alignment: .center)
+                .accessibilityHidden(true)
+        }
+        .frame(height: 32, alignment: .center)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+}
+
+private struct SystemVolumeSlider: View {
+#if targetEnvironment(simulator)
+    @State private var previewVolume = 0.55
+
+    var body: some View {
+        Slider(value: $previewVolume, in: 0...1)
+            .tint(.primary)
+            .accessibilityHint("System volume changes require a physical iPhone")
+    }
+#else
+    // The physical iPhone capture places both icon centers at 1560.5 px.
+    // A 3.5-pt offset placed the track at 1566.5 px, so 0.5 pt centers it.
+    var body: some View { DeviceSystemVolumeSlider().offset(y: 0.5) }
+#endif
+}
+
+#if !targetEnvironment(simulator)
+private final class VerticallyCenteredVolumeView: MPVolumeView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let slider = subviews.compactMap({ $0 as? UISlider }).first else { return }
+        var frame = slider.frame
+        frame.origin.y = (bounds.height - frame.height) / 2
+        slider.frame = frame
+    }
+}
+
+private struct DeviceSystemVolumeSlider: UIViewRepresentable {
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = VerticallyCenteredVolumeView(frame: .zero)
+        view.showsVolumeSlider = true
+        // Routing has its own AVRoutePickerView directly below the player.
+        view.showsRouteButton = false
+        styleSlider(in: view)
+        return view
+    }
+
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {
+        styleSlider(in: uiView)
+    }
+
+    private func styleSlider(in view: MPVolumeView) {
+        guard let slider = view.subviews.compactMap({ $0 as? UISlider }).first else { return }
+        slider.minimumTrackTintColor = .label
+        slider.maximumTrackTintColor = .tertiaryLabel
+        slider.tintColor = .label
+    }
+}
+#endif

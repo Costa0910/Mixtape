@@ -41,6 +41,8 @@ final class PlaybackSettings: ObservableObject {
 
     @Published var crossfadeEnabled: Bool { didSet { d.set(crossfadeEnabled, forKey: K.crossfadeOn) } }
     @Published var crossfadeSeconds: Double { didSet { d.set(crossfadeSeconds, forKey: K.crossfadeSecs) } }
+    @Published var gaplessEnabled: Bool { didSet { d.set(gaplessEnabled, forKey: K.gaplessOn) } }
+    @Published var normalizationEnabled: Bool { didSet { d.set(normalizationEnabled, forKey: K.normalizationOn) } }
     @Published var eqEnabled: Bool { didSet { d.set(eqEnabled, forKey: K.eqOn) } }
     @Published var eqPreset: EQPreset { didSet { d.set(eqPreset.rawValue, forKey: K.eqPreset) } }
     @Published var customGains: [Float] { didSet { d.set(customGains.map { Double($0) }, forKey: K.eqGains) } }
@@ -62,6 +64,8 @@ final class PlaybackSettings: ObservableObject {
     private enum K {
         static let crossfadeOn = "crossfadeEnabled"
         static let crossfadeSecs = "crossfadeSeconds"
+        static let gaplessOn = "gaplessEnabled"
+        static let normalizationOn = "normalizationEnabled"
         static let eqOn = "eqEnabled"
         static let eqPreset = "eqPreset"
         static let eqGains = "eqGains"
@@ -70,6 +74,8 @@ final class PlaybackSettings: ObservableObject {
     private init() {
         crossfadeEnabled = d.bool(forKey: K.crossfadeOn)
         crossfadeSeconds = d.object(forKey: K.crossfadeSecs) as? Double ?? 4.0
+        gaplessEnabled = d.object(forKey: K.gaplessOn) as? Bool ?? true
+        normalizationEnabled = d.object(forKey: K.normalizationOn) as? Bool ?? true
         eqEnabled = d.bool(forKey: K.eqOn)
         eqPreset = EQPreset(rawValue: d.string(forKey: K.eqPreset) ?? "") ?? .flat
         let stored = (d.array(forKey: K.eqGains) as? [Double])?.map { Float($0) }

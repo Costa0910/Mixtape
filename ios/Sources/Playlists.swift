@@ -4,13 +4,18 @@ import SwiftData
 // MARK: - Playlists list
 
 struct PlaylistsView: View {
-    @EnvironmentObject var player: PlayerEngine
     @Environment(\.modelContext) private var ctx
     @Query(sort: \Playlist.createdAt, order: .reverse) private var playlists: [Playlist]
     @Query private var tracks: [Track]
 
     @State private var showingNew = false
     @State private var newName = ""
+    @AppStorage("collectionLayout.playlists") private var layout: CollectionLayoutMode = .list
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 16),
+        GridItem(.flexible(), spacing: 16)
+    ]
 
     var body: some View {
         Group {
@@ -23,23 +28,51 @@ struct PlaylistsView: View {
                     Button("New Playlist") { showingNew = true }.buttonStyle(.borderedProminent)
                 }
             } else {
-                List {
-                    ForEach(playlists) { pl in
-                        NavigationLink { PlaylistDetailView(playlist: pl) } label: {
-                            PlaylistRow(playlist: pl, tracks: tracks)
+                if layout == .list {
+                    List {
+                        ForEach(playlists) { pl in
+                            NavigationLink { PlaylistDetailView(playlist: pl) } label: {
+                                PlaylistRow(playlist: pl, tracks: tracks)
+                            }
+                        }
+                        .onDelete { idx in
+                            idx.map { playlists[$0] }.forEach(ctx.delete)
+                            try? ctx.save(); Haptics.rigid()
                         }
                     }
-                    .onDelete { idx in
-                        idx.map { playlists[$0] }.forEach(ctx.delete)
-                        try? ctx.save(); Haptics.rigid()
+                    .listStyle(.plain)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 20) {
+                            ForEach(playlists) { playlist in
+                                NavigationLink { PlaylistDetailView(playlist: playlist) } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        PlaylistArtwork(tracks: playlist.tracks(in: tracks))
+                                        Text(playlist.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                        Text("\(playlist.trackIDs.count) songs").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .buttonStyle(Pressable(scale: 0.97))
+                                .contextMenu {
+                                    Button("Delete", systemImage: "trash", role: .destructive) {
+                                        ctx.delete(playlist); try? ctx.save(); Haptics.rigid()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, AppLayout.pageInset)
+                        .padding(.top, 12)
+                        .padding(.bottom, AppLayout.scrollEndPadding)
                     }
                 }
-                .listStyle(.plain)
             }
         }
         .navigationTitle("Playlists")
         .toolbar {
-            Button { showingNew = true } label: { Image(systemName: "plus") }
+            HStack {
+                CollectionLayoutPicker(selection: $layout)
+                Button { showingNew = true } label: { Image(systemName: "plus") }
+            }
         }
         .alert("New Playlist", isPresented: $showingNew) {
             TextField("Name", text: $newName)
@@ -87,34 +120,25 @@ struct PlaylistDetailView: View {
     @EnvironmentObject var player: PlayerEngine
     @Environment(\.modelContext) private var ctx
     @Query private var allTracks: [Track]
+    @AppStorage("collectionLayout.playlistTracks") private var layout: CollectionLayoutMode = .list
 
     private var items: [Track] { playlist.tracks(in: allTracks) }
 
     var body: some View {
+        Group {
+            if layout == .list { playlistList } else { playlistGrid }
+        }
+        .navigationTitle(playlist.name).navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            CollectionLayoutPicker(selection: $layout)
+            if layout == .list { EditButton() }
+        }
+    }
+
+    private var playlistList: some View {
         List {
             Section {
-                VStack(spacing: 14) {
-                    PlaylistArtwork(tracks: items)
-                        .frame(width: 200, height: 200)
-                        .shadow(color: .black.opacity(0.4), radius: 18, y: 8)
-                        .padding(.top, 8)
-                    Text(playlist.name).font(.title2.bold()).tracking(-0.3)
-                    Text("\(items.count) song\(items.count == 1 ? "" : "s")")
-                        .font(.subheadline).foregroundStyle(.secondary)
-
-                    HStack(spacing: 12) {
-                        Button { Haptics.rigid(); player.shuffle = false; player.play(items, startAt: 0) } label: {
-                            Label("Play", systemImage: "play.fill")
-                                .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                                .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
-                        }.buttonStyle(Pressable()).disabled(items.isEmpty)
-                        Button { Haptics.rigid(); player.shuffle = true; player.play(items, startAt: 0) } label: {
-                            Label("Shuffle", systemImage: "shuffle")
-                                .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                                .background(.ultraThinMaterial, in: Capsule())
-                        }.buttonStyle(Pressable()).disabled(items.isEmpty)
-                    }
-                }
+                playlistHeader
                 .frame(maxWidth: .infinity)
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
@@ -122,7 +146,7 @@ struct PlaylistDetailView: View {
 
             Section {
                 ForEach(Array(items.enumerated()), id: \.element.id) { pair in
-                    Button { Haptics.light(); player.play(items, startAt: pair.offset) } label: {
+                    Button { player.play(items, startAt: pair.offset); Haptics.light() } label: {
                         TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
                     }.buttonStyle(.plain).trackMenu(pair.element)
                 }
@@ -137,8 +161,44 @@ struct PlaylistDetailView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle(playlist.name).navigationBarTitleDisplayMode(.inline)
-        .toolbar { EditButton() }
+    }
+
+    private var playlistGrid: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                playlistHeader
+                TrackGridContent(tracks: items, currentTrackID: player.current?.id) { index in
+                    player.play(items, startAt: index)
+                }
+            }
+            .padding(.horizontal, AppLayout.pageInset)
+            .padding(.bottom, AppLayout.scrollEndPadding)
+        }
+    }
+
+    private var playlistHeader: some View {
+        VStack(spacing: 14) {
+            PlaylistArtwork(tracks: items)
+                .frame(width: 200, height: 200)
+                .shadow(color: .black.opacity(0.4), radius: 18, y: 8)
+                .padding(.top, 8)
+            Text(playlist.name).font(.title2.bold()).tracking(-0.3)
+            Text("\(items.count) song\(items.count == 1 ? "" : "s")")
+                .font(.subheadline).foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button { player.shuffle = false; player.play(items, startAt: 0); Haptics.rigid() } label: {
+                    Label("Play", systemImage: "play.fill")
+                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
+                }.buttonStyle(Pressable()).disabled(items.isEmpty)
+                Button { player.playShuffled(items); Haptics.rigid() } label: {
+                    Label("Shuffle", systemImage: "shuffle")
+                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }.buttonStyle(Pressable()).disabled(items.isEmpty)
+            }
+        }
     }
 }
 
@@ -153,14 +213,14 @@ struct TrackMenu: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contextMenu {
-                Button { Haptics.light(); PlayerEngine.shared.playNext(track) } label: {
+                Button { PlayerEngine.shared.playNext(track); Haptics.light() } label: {
                     Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
                 }
-                Button { Haptics.light(); PlayerEngine.shared.addToQueue(track) } label: {
+                Button { PlayerEngine.shared.addToQueue(track); Haptics.light() } label: {
                     Label("Add to Queue", systemImage: "text.append")
                 }
                 Divider()
-                Button { Haptics.rigid(); PlayerEngine.shared.playSimilar(to: track) } label: {
+                Button { PlayerEngine.shared.playSimilar(to: track); Haptics.rigid() } label: {
                     Label("More Like This", systemImage: "wand.and.stars")
                 }
                 Button { track.loved.toggle(); try? ctx.save(); Haptics.rigid() } label: {
@@ -182,10 +242,10 @@ struct TrackSwipeActions: ViewModifier {
     func body(content: Content) -> some View {
         content
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                Button { Haptics.light(); PlayerEngine.shared.playNext(track) } label: {
+                Button { PlayerEngine.shared.playNext(track); Haptics.light() } label: {
                     Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
                 }.tint(.indigo)
-                Button { Haptics.light(); PlayerEngine.shared.addToQueue(track) } label: {
+                Button { PlayerEngine.shared.addToQueue(track); Haptics.light() } label: {
                     Label("Queue", systemImage: "text.append")
                 }.tint(.purple)
             }

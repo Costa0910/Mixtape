@@ -180,7 +180,10 @@ final class WebServer: ObservableObject {
 
     // Extracts and caches an album's embedded cover art (off the listener queue).
     private func serveArt(_ conn: NWConnection, album: String) {
-        let safe = album.split(separator: "/").filter { $0 != ".." }.joined(separator: "/")
+        guard let dir = safeURL(for: album) else {
+            send(conn, status: "404 Not Found", body: Data()); return
+        }
+        let safe = album
         artLock.lock(); let hit = artCache[safe]; artLock.unlock()
         if let hit {
             send(conn, status: "200 OK", contentType: "image/png", body: hit,
@@ -188,9 +191,7 @@ final class WebServer: ObservableObject {
         }
         DispatchQueue.global().async { [weak self] in
             guard let self else { return }
-            let dir = self.root.appendingPathComponent(safe)
-            guard dir.path.hasPrefix(self.root.path),
-                  let ffmpeg = BinaryLocator.url(for: .ffmpeg),
+            guard let ffmpeg = BinaryLocator.url(for: .ffmpeg),
                   let first = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
                     .filter({ Media.isAudio($0) })
                     .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else {
@@ -217,9 +218,7 @@ final class WebServer: ObservableObject {
     // MARK: streaming file responses (chunked, with Range support)
 
     private func streamFile(_ conn: NWConnection, rel: String, range: String?) {
-        let safe = rel.split(separator: "/").filter { $0 != ".." }.joined(separator: "/")
-        let fileURL = root.appendingPathComponent(safe)
-        guard fileURL.path.hasPrefix(root.path),
+        guard let fileURL = safeURL(for: rel),
               let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
               let size = (attrs[.size] as? NSNumber)?.intValue,
               let handle = try? FileHandle(forReadingFrom: fileURL) else {
@@ -448,6 +447,17 @@ final class WebServer: ObservableObject {
         case "m3u8": return "application/vnd.apple.mpegurl"
         default: return "application/octet-stream"
         }
+    }
+
+    private func safeURL(for relativePath: String) -> URL? {
+        let parts = relativePath.split(separator: "/", omittingEmptySubsequences: false)
+        guard !parts.isEmpty,
+              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+        let rootURL = root.standardizedFileURL.resolvingSymlinksInPath()
+        let candidate = parts.reduce(rootURL) { $0.appendingPathComponent(String($1)) }
+            .standardizedFileURL.resolvingSymlinksInPath()
+        guard candidate.path.hasPrefix(rootURL.path + "/") else { return nil }
+        return candidate
     }
 
     static func localIP() -> String? {

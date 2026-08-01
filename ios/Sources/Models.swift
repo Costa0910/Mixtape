@@ -16,16 +16,21 @@ final class Track {
     var dateAdded: Date
     var trackNo: Int
     var sourcePath: String?      // original Mac manifest path (e.g. "Album/track.m4a"), for exact re-sync dedup
+    var sourceSize: Int64?       // exact Mac file size; changes when tags/lyrics are updated
     var lyrics: String?          // song lyrics
+    var normalizationGainDB: Double? // local loudness analysis; nil until measured
 
     // listening stats (private, on-device)
+    var engagedPlayCount: Int? // reached 50%; optional for compatibility with existing stores
     var playCount: Int
     var skipCount: Int
     var lastPlayedAt: Date?
     var loved: Bool
 
     init(id: UUID = UUID(), title: String, artist: String, album: String, genre: String,
-         relPath: String, artworkRel: String?, duration: Double, trackNo: Int, sourcePath: String? = nil, lyrics: String? = nil) {
+         relPath: String, artworkRel: String?, duration: Double, trackNo: Int,
+         sourcePath: String? = nil, sourceSize: Int64? = nil, lyrics: String? = nil,
+         normalizationGainDB: Double? = nil) {
         self.id = id
         self.title = title
         self.artist = artist
@@ -36,8 +41,11 @@ final class Track {
         self.duration = duration
         self.trackNo = trackNo
         self.sourcePath = sourcePath
+        self.sourceSize = sourceSize
         self.lyrics = lyrics
+        self.normalizationGainDB = normalizationGainDB
         self.dateAdded = Date()
+        self.engagedPlayCount = 0
         self.playCount = 0
         self.skipCount = 0
         self.lastPlayedAt = nil

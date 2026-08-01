@@ -7,19 +7,20 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
     PRODUCT_NAME: Snag
     TARGETED_DEVICE_FAMILY: "1"          # iPhone
-    DEVELOPMENT_TEAM: 3ZHAXWQ5PA
+    DEVELOPMENT_TEAM: 5HT736L2AJ
     CODE_SIGN_STYLE: Automatic
-    CODE_SIGN_IDENTITY: "Apple Development"
 targets:
   SnagPlayer:
     type: application
     platform: iOS
     sources:
       - path: Sources
+      - path: ../Shared
+      - path: Resources
     dependencies:
       - target: SnagWidgetExtension
         embed: true
@@ -28,7 +29,9 @@ targets:
       properties:
         CFBundleName: Snag
         CFBundleDisplayName: Snag
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
+        UIRequiresFullScreen: true
         UIBackgroundModes: [audio]
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
@@ -61,8 +64,42 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 
+  SnagPlayerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: SnagPlayer
+    settings:
+      base:
+        PRODUCT_NAME: SnagPlayerTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.costa.SnagPlayerTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Snag.app/Snag"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  SnagPlayerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: SnagPlayer
+    settings:
+      base:
+        PRODUCT_NAME: SnagPlayerUITests
+        PRODUCT_BUNDLE_IDENTIFIER: com.costa.SnagPlayerUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: SnagPlayer
+
 schemes:
   SnagPlayer:
     build:
       targets:
         SnagPlayer: all
+        SnagPlayerTests: [test]
+    test:
+      targets:
+        - SnagPlayerTests
+        - SnagPlayerUITests

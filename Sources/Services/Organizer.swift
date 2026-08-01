@@ -14,28 +14,150 @@ struct Organizer {
         return u
     }
 
+    private static func ffprobe() -> URL? {
+        BinaryLocator.url(for: .ffprobe)
+    }
+
+    private struct ProbeOutput: Decodable {
+        struct Format: Decodable { let tags: [String: String]? }
+        let format: Format?
+    }
+
+    private static func embeddedOrDescriptionLyrics(in file: URL) async -> String? {
+        guard let exe = ffprobe(),
+              let output = try? await ProcessRunner.capture(exe, [
+                "-v", "error", "-show_entries", "format_tags", "-of", "json", file.path
+              ]),
+              let data = output.data(using: .utf8),
+              let probe = try? JSONDecoder().decode(ProbeOutput.self, from: data),
+              let tags = probe.format?.tags else { return nil }
+
+        let normalized = Dictionary(uniqueKeysWithValues: tags.map { ($0.key.lowercased(), $0.value) })
+        if let lyrics = normalized["lyrics"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !lyrics.isEmpty {
+            return lyrics
+        }
+
+        for key in ["description", "synopsis", "comment"] {
+            if let value = normalized[key], let fallback = LyricsFallback.content(fromDescription: value) {
+                return fallback
+            }
+        }
+        return nil
+    }
+
     private static func parseSubtitlesToLyrics(_ content: String) -> String {
         let lines = content.components(separatedBy: .newlines)
-        var lyricLines: [String] = []
-        
+        var timedLyrics: [(Double, String)] = []
+
+        var currentStart: Double? = nil
+        var currentText: [String] = []
+
+        // Helper to parse SRT/VTT time string: HH:MM:SS,mmm or MM:SS.mmm
+        func parseTime(_ timeStr: String) -> Double? {
+            let clean = timeStr.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+            let parts = clean.components(separatedBy: ":")
+            guard !parts.isEmpty else { return nil }
+            if parts.count == 3 {
+                // HH:MM:SS.mmm
+                guard let h = Double(parts[0]), let m = Double(parts[1]), let s = Double(parts[2]) else { return nil }
+                return h * 3600.0 + m * 60.0 + s
+            } else if parts.count == 2 {
+                // MM:SS.mmm
+                guard let m = Double(parts[0]), let s = Double(parts[1]) else { return nil }
+                return m * 60.0 + s
+            }
+            return nil
+        }
+
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty || trimmed == "WEBVTT" || trimmed.hasPrefix("Kind:") || trimmed.hasPrefix("Language:") {
+            if trimmed.isEmpty {
+                if let start = currentStart, !currentText.isEmpty {
+                    let fullText = currentText.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let clean = fullText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                    if !clean.isEmpty {
+                        timedLyrics.append((start, clean))
+                    }
+                }
+                currentStart = nil
+                currentText = []
+                continue
+            }
+
+            if trimmed == "WEBVTT" || trimmed.hasPrefix("Kind:") || trimmed.hasPrefix("Language:") {
                 continue
             }
             if CharacterSet(charactersIn: trimmed).isSubset(of: .decimalDigits) {
                 continue
             }
+
             if trimmed.contains("-->") {
+                let parts = trimmed.components(separatedBy: "-->")
+                if parts.count >= 1, let start = parseTime(parts[0]) {
+                    currentStart = start
+                }
                 continue
             }
-            let cleanLine = trimmed.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            if !cleanLine.isEmpty {
-                lyricLines.append(cleanLine)
+
+            if currentStart != nil {
+                currentText.append(trimmed)
+            } else if trimmed.hasPrefix("[") && trimmed.contains("]") {
+                // Already LRC format! Just copy the line as is
+                return content
             }
         }
-        
-        return lyricLines.joined(separator: "\n")
+
+        // Handle final block
+        if let start = currentStart, !currentText.isEmpty {
+            let fullText = currentText.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            let clean = fullText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            if !clean.isEmpty {
+                timedLyrics.append((start, clean))
+            }
+        }
+
+        if timedLyrics.isEmpty {
+            // Fallback to plain line-by-line if no timestamps parsed
+            var lyricLines: [String] = []
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty || trimmed == "WEBVTT" || trimmed.hasPrefix("Kind:") || trimmed.hasPrefix("Language:") {
+                    continue
+                }
+                if CharacterSet(charactersIn: trimmed).isSubset(of: .decimalDigits) {
+                    continue
+                }
+                let cleanLine = trimmed.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                if !cleanLine.isEmpty {
+                    lyricLines.append(cleanLine)
+                }
+            }
+            return lyricLines.joined(separator: "\n")
+        }
+
+        // Auto-captions often repeat the same rolling phrase across adjacent
+        // cues. Collapse exact consecutive duplicates before embedding.
+        var deduplicated: [(Double, String)] = []
+        for entry in timedLyrics.sorted(by: { $0.0 < $1.0 }) {
+            let normalized = entry.1.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let previous = deduplicated.last?.1.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalized != previous { deduplicated.append(entry) }
+        }
+
+        // Format as LRC text
+        var lrcLines: [String] = []
+        for (time, text) in deduplicated {
+            let mins = Int(time) / 60
+            let secs = Int(time) % 60
+            let hundredths = Int((time.truncatingRemainder(dividingBy: 1.0)) * 100.0)
+            let ts = String(format: "[%02d:%02d.%02d]", mins, secs, hundredths)
+            lrcLines.append("\(ts)\(text)")
+        }
+
+        return lrcLines.joined(separator: "\n")
     }
 
     // Tag every audio file in the album folder with album / album_artist / track,
@@ -75,6 +197,8 @@ struct Organizer {
                 if !cleanLyrics.isEmpty {
                     meta += ["-metadata", "lyrics=\(cleanLyrics)"]
                 }
+            } else if let fallback = await embeddedOrDescriptionLyrics(in: file) {
+                meta += ["-metadata", "lyrics=\(fallback)"]
             }
 
             let args = ["-v", "error", "-y", "-i", file.path,

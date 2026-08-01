@@ -3,6 +3,10 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject private var settings = PlaybackSettings.shared
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(RecommendationPreferences.memoryKey) private var memoryRaw = TasteMemory.balanced.rawValue
+    @AppStorage(RecommendationPreferences.discoveryKey) private var discovery = 0.45
+    @AppStorage(RecommendationPreferences.timelessFavoritesKey) private var timelessFavorites = true
+    @AppStorage(RecommendationPreferences.learnFromSkipsKey) private var learnFromSkips = true
 
     var body: some View {
         NavigationStack {
@@ -20,6 +24,8 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Sound Check", isOn: $settings.normalizationEnabled)
+                    Toggle("Gapless Playback", isOn: $settings.gaplessEnabled)
                     Toggle("Crossfade", isOn: $settings.crossfadeEnabled)
                     if settings.crossfadeEnabled {
                         HStack {
@@ -30,12 +36,48 @@ struct SettingsView: View {
                         Slider(value: $settings.crossfadeSeconds, in: 1...12, step: 1)
                     }
                 } header: { Text("Playback") } footer: {
-                    Text("Crossfade blends the end of one song into the start of the next.")
+                    Text("Sound Check evens out volume without changing your files. Gapless Playback removes silence between consecutive tracks. Crossfade replaces the gapless transition when enabled.")
+                }
+
+                Section {
+                    Picker("Taste Memory", selection: $memoryRaw) {
+                        ForEach(TasteMemory.allCases) { memory in
+                            Text(memory.title).tag(memory.rawValue)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Discovery")
+                            Spacer()
+                            Text(discoveryLabel).foregroundStyle(.secondary)
+                        }
+                        Slider(value: $discovery, in: 0...1, step: 0.05) {
+                            Text("Discovery")
+                        } minimumValueLabel: {
+                            Image(systemName: "person.fill")
+                        } maximumValueLabel: {
+                            Image(systemName: "sparkles")
+                        }
+                    }
+
+                    Toggle("Keep Favorites Timeless", isOn: $timelessFavorites)
+                    Toggle("Learn from Skips", isOn: $learnFromSkips)
+                } header: { Text("Smart Mix") } footer: {
+                    Text("Taste Memory controls how quickly old listening habits fade. Favorites stay marked until you remove the heart; when Keep Favorites Timeless is on, their recommendation boost never fades. Everything is calculated on this iPhone.")
                 }
 
                 Section {
                     ImportDeviceMusicButton()
                 } header: { Text("Library") }
+
+                Section {
+                    Label("Listening history stays on this device", systemImage: "iphone.and.arrow.forward")
+                    Label("Wi-Fi sync connects directly to your Mac", systemImage: "wifi")
+                    Label("No account, ads, or analytics", systemImage: "hand.raised")
+                } header: { Text("Privacy & Data") } footer: {
+                    Text("Play, skip, and favorite history is used only on this iPhone to improve Smart Mix and autoplay.")
+                }
 
                 Section {
                     HStack { Text("Version"); Spacer(); Text(appVersion).foregroundStyle(.secondary) }
@@ -53,6 +95,14 @@ struct SettingsView: View {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         return "\(v) (\(b))"
+    }
+
+    private var discoveryLabel: String {
+        switch discovery {
+        case ..<0.34: "Familiar"
+        case 0.34..<0.67: "Balanced"
+        default: "Adventurous"
+        }
     }
 }
 

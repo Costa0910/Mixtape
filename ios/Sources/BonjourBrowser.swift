@@ -37,6 +37,13 @@ final class BonjourBrowser: NSObject, ObservableObject {
         guard !found.contains(where: { $0.host == mac.host && $0.port == mac.port }) else { return }
         found.append(mac)
     }
+
+    fileprivate func finishResolving(name: String, type: String, domain: String) {
+        guard let service = resolving.first(where: {
+            $0.name == name && $0.type == type && $0.domain == domain
+        }) else { return }
+        resolving.remove(service)
+    }
 }
 
 extension BonjourBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
@@ -52,15 +59,17 @@ extension BonjourBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
         let ip = Self.firstIPv4(sender.addresses)
         let host = ip ?? sender.hostName?.trimmingCharacters(in: CharacterSet(charactersIn: ".")) ?? ""
         guard !host.isEmpty else { return }
-        let mac = Mac(name: sender.name, host: host, port: sender.port)
+        let name = sender.name, type = sender.type, domain = sender.domain, port = sender.port
+        let mac = Mac(name: name, host: host, port: port)
         Task { @MainActor in
             add(mac)
-            resolving.remove(sender)
+            finishResolving(name: name, type: type, domain: domain)
         }
     }
 
     nonisolated func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
-        Task { @MainActor in resolving.remove(sender) }
+        let name = sender.name, type = sender.type, domain = sender.domain
+        Task { @MainActor in finishResolving(name: name, type: type, domain: domain) }
     }
 
     /// Pull the first IPv4 dotted-quad out of a service's resolved sockaddr list.

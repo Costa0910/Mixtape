@@ -7,7 +7,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
     PRODUCT_NAME: Snag
     ENABLE_HARDENED_RUNTIME: NO
@@ -20,6 +20,7 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      - path: Shared
       - path: Resources
         optional: true
       - path: Tools/bin
@@ -42,3 +43,17 @@ targets:
       path: Sources/Snag.entitlements
       properties:
         com.apple.security.app-sandbox: false
+
+  SnagTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Snag
+    settings:
+      base:
+        PRODUCT_NAME: SnagTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.costa.SnagTests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Snag.app/Contents/MacOS/Snag"
+        BUNDLE_LOADER: "$(TEST_HOST)"
