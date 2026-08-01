@@ -3,11 +3,11 @@ import UIKit
 
 enum AppLayout {
     static let pageInset: CGFloat = 16
-    /// The custom iOS 26 dock is 154 pt while the mini-player is present
-    /// (62 mini-player + 8 gap + 72 tabs + 12 outer padding). Scroll containers
+    /// The integrated dock is about 132 pt while the mini-player is present.
+    /// Scroll containers
     /// do not reliably inherit that custom inset, so reserve it explicitly plus
     /// 16 pt of breathing room for the final row/shelf.
-    static let scrollEndPadding: CGFloat = 170
+    static let scrollEndPadding: CGFloat = 148
     static let dockSpacing: CGFloat = 8
     static let dockBottomPadding: CGFloat = 4
 }

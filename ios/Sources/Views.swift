@@ -102,6 +102,7 @@ struct ImportButton: View {
 }
 
 struct ListenNowView: View {
+    @Environment(\.colorScheme) private var colorScheme
     private let player = PlayerEngine.shared
     @Query private var tracks: [Track]
 
@@ -145,13 +146,13 @@ struct ListenNowView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color(uiColor: .systemBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(nil, for: .navigationBar)
+        .toolbarColorScheme(colorScheme, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
             ToolbarItem(placement: .principal) {
-                Text("Listen Now").font(.headline)
+                Text("Listen Now").font(.headline).foregroundStyle(.primary)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink { SearchView() } label: { Image(systemName: "magnifyingglass") }
@@ -887,33 +888,35 @@ struct SyncView: View {
 struct MiniPlayer: View {
     @EnvironmentObject var player: PlayerEngine
     var body: some View {
-        VStack(spacing: 0) {
-            MiniPlayerProgress()
-
+        VStack(spacing: 6) {
             HStack(spacing: 12) {
-                SquareArtwork(url: player.current?.artworkURL, corner: 8)
-                    .frame(width: 44, height: 44)
+                SquareArtwork(url: player.current?.artworkURL, corner: 9)
+                    .frame(width: 42, height: 42)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(player.current?.title ?? "").font(.subheadline.weight(.medium)).lineLimit(1)
+                    Text(player.current?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1)
                     Text(player.current?.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 8)
                 Button { player.playPause(); Haptics.soft() } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title3).frame(width: 30, height: 30)
+                        .font(.body.weight(.semibold))
+                        .frame(width: 36, height: 36)
+                        .background(Color.primary.opacity(0.08), in: Circle())
                         .contentTransition(.symbolEffect(.replace))
                 }.buttonStyle(Pressable(scale: 0.85))
                 Button { player.next(userInitiated: true); Haptics.soft() } label: {
-                    Image(systemName: "forward.fill").font(.body).frame(width: 30, height: 30)
+                    Image(systemName: "forward.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 30, height: 36)
                 }.buttonStyle(Pressable(scale: 0.85))
             }
             .foregroundStyle(.primary)
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            MiniPlayerProgress()
+                .padding(.horizontal, 2)
         }
-        .background(Color(uiColor: .secondarySystemBackground).opacity(0.72),
-                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .balancedGlassCard()
-        .shadow(color: .black.opacity(0.24), radius: 10, y: 3)
+        .padding(.horizontal, 12)
+        .padding(.top, 9)
+        .padding(.bottom, 7)
     }
 }
 
@@ -922,8 +925,11 @@ private struct MiniPlayerProgress: View {
 
     var body: some View {
         GeometryReader { geo in
-            Capsule().fill(Color.indigo)
-                .frame(width: max(0, geo.size.width * clock.progress), height: 2)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.10))
+                Capsule().fill(Color.indigo)
+                    .frame(width: max(0, geo.size.width * clock.progress))
+            }
         }
         .frame(height: 2)
     }

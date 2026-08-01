@@ -77,41 +77,70 @@ struct RootView: View {
 /// A single layout owner keeps playback and navigation visually connected and
 /// reserves exactly their real height — no invisible spacer and no double inset.
 private struct BottomPlaybackDock: View {
+    @EnvironmentObject private var player: PlayerEngine
+    @Environment(\.colorScheme) private var colorScheme
+    @Namespace private var glassNamespace
     @Binding var selection: AppTab
     @Binding var showNowPlaying: Bool
 
     var body: some View {
         Group {
             if #available(iOS 26.0, *) {
-                GlassEffectContainer(spacing: AppLayout.dockSpacing) { dockContent }
+                GlassEffectContainer(spacing: 0) {
+                    dockContent
+                        .background(
+                            Color(uiColor: .secondarySystemBackground).opacity(0.42),
+                            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        )
+                        .glassEffect(
+                            .regular.tint(
+                                Color(uiColor: .systemBackground)
+                                    .opacity(colorScheme == .dark ? 0.48 : 0.32)
+                            ),
+                            in: .rect(cornerRadius: 28)
+                        )
+                        .glassEffectID("mediaDock", in: glassNamespace)
+                        .glassEffectTransition(.matchedGeometry)
+                }
             } else {
                 dockContent
+                    .background(.regularMaterial,
+                                in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+                    }
             }
         }
         .padding(.horizontal, AppLayout.pageInset)
         .padding(.top, AppLayout.dockSpacing)
         .padding(.bottom, AppLayout.dockBottomPadding)
         .background {
-            // Neutralize saturated artwork underneath the glass and visually
-            // separate scrolling content from persistent playback controls.
             LinearGradient(colors: [
                 .clear,
-                Color(uiColor: .systemBackground).opacity(0.72),
-                Color(uiColor: .systemBackground).opacity(0.96)
+                Color(uiColor: .systemBackground).opacity(0.68),
+                Color(uiColor: .systemBackground).opacity(0.94)
             ],
                            startPoint: .top, endPoint: .bottom)
-                .padding(.top, -28)
+                .padding(.top, -22)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         }
+        .animation(.snappy, value: player.current?.id != nil)
     }
 
     private var dockContent: some View {
-        VStack(spacing: AppLayout.dockSpacing) {
-            PlaybackMiniPlayerSlot(showNowPlaying: $showNowPlaying)
-            BalancedGlassTabBar(selection: $selection)
+        VStack(spacing: 0) {
+            if player.current != nil {
+                PlaybackMiniPlayerSlot(showNowPlaying: $showNowPlaying)
+                Divider()
+                    .padding(.horizontal, 12)
+                    .transition(.opacity)
+            }
+            IntegratedDockTabBar(selection: $selection)
                 .frame(maxWidth: .infinity)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 }
 
@@ -128,37 +157,20 @@ private struct PlaybackMiniPlayerSlot: View {
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("miniPlayer")
-                .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .contentShape(Rectangle())
                 .onTapGesture { showNowPlaying = true }
-                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
         }
     }
 }
 
-private struct BalancedGlassTabBar: View {
-    @Environment(\.colorScheme) private var colorScheme
+private struct IntegratedDockTabBar: View {
     @Binding var selection: AppTab
 
     var body: some View {
-        if #available(iOS 26.0, *) {
-            tabItems
-                .padding(.horizontal, 6)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-                .background(Color(uiColor: .secondarySystemBackground).opacity(0.50), in: Capsule())
-                .glassEffect(
-                    .regular.tint(Color(uiColor: .systemBackground).opacity(colorScheme == .dark ? 0.55 : 0.38)).interactive(),
-                    in: .capsule
-                )
-        } else {
-            tabItems
-                .padding(.horizontal, 6)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().fill(Color.primary.opacity(0.06)).allowsHitTesting(false))
-                .overlay(Capsule().stroke(Color.primary.opacity(0.16), lineWidth: 0.5))
-        }
+        tabItems
+            .padding(.horizontal, 5)
+            .padding(.vertical, 5)
     }
 
     private var tabItems: some View {
@@ -168,9 +180,9 @@ private struct BalancedGlassTabBar: View {
                     Haptics.select()
                     selection = tab
                 } label: {
-                    VStack(spacing: 3) {
+                    VStack(spacing: 2) {
                         Image(systemName: tab.symbol)
-                            .font(.system(size: 22, weight: .medium))
+                            .font(.system(size: 20, weight: .semibold))
                         Text(tab.title)
                             .font(.caption2.weight(.medium))
                             .lineLimit(1)
@@ -178,10 +190,11 @@ private struct BalancedGlassTabBar: View {
                     }
                     .foregroundStyle(selection == tab ? Color.indigo : Color.secondary)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 60)
-                    .background(selection == tab ? Color.primary.opacity(0.10) : .clear, in: Capsule())
+                    .frame(height: 50)
+                    .background(selection == tab ? Color.indigo.opacity(0.12) : .clear,
+                                in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .animation(.snappy, value: selection)
-                    .contentShape(Capsule())
+                    .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
                 .buttonStyle(Pressable(scale: 0.94))
                 .frame(maxWidth: .infinity)
