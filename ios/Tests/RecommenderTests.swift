@@ -160,7 +160,14 @@ final class RecommenderTests: XCTestCase {
     }
 
     func testLyricsFallbackKeepsUsefulDescriptionWhenNoLyricsSectionExists() {
-        let description = "This acoustic performance was recorded live in Lisbon for the summer session."
+        let description = """
+        Sometimes we laugh and sometimes we cry
+        I took a half and she took the whole thing
+        We took a trip now we on your block
+        Where do these artists be at when they say they doing all this
+        Tired of beefing of bums you can't even pay me
+        Been waking up in the crib and sometimes I don't even know
+        """
         XCTAssertEqual(LyricsFallback.content(fromDescription: description), description)
     }
 

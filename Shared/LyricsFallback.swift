@@ -16,7 +16,7 @@ enum LyricsFallback {
         }
 
         let description = clean(lines, stopAtPromotionalFooter: false)
-        return isUseful(description) ? description : nil
+        return (isUseful(description) && isLikelyLyrics(description)) ? description : nil
     }
 
     private static func isLyricsMarker(_ line: String) -> Bool {
@@ -58,5 +58,42 @@ enum LyricsFallback {
     private static func isUseful(_ value: String) -> Bool {
         let words = value.split(whereSeparator: { $0.isWhitespace })
         return value.count >= 24 && words.count >= 4
+    }
+
+    private static func isLikelyLyrics(_ value: String) -> Bool {
+        let lines = value.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        guard lines.count >= 6 else { return false }
+        
+        let totalChars = lines.reduce(0) { $0 + $1.count }
+        let avgLineLength = Double(totalChars) / Double(lines.count)
+        
+        guard avgLineLength >= 10 && avgLineLength <= 65 else { return false }
+        
+        let promoKeywords = [
+            "subscribe", "follow ", "instagram", "facebook", "twitter", 
+            "spotify", "apple music", "patreon", "merch", "album out now", 
+            "stream here", "official website", "directed by", "produced by",
+            "written by", "special thanks", "buy tickets", "get the new album",
+            "lnk.to", "smarturl", "youtube.com/redirect"
+        ]
+        
+        var promoCount = 0
+        for line in lines {
+            let lower = line.lowercased()
+            for kw in promoKeywords {
+                if lower.contains(kw) {
+                    promoCount += 1
+                }
+            }
+        }
+        
+        if promoCount >= 2 || Double(promoCount) / Double(lines.count) >= 0.15 {
+            return false
+        }
+        
+        return true
     }
 }
