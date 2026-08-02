@@ -235,50 +235,26 @@ private struct LoadingView: View {
 
     var body: some View {
         ZStack {
-            // Elegant dark gradient background
-            LinearGradient(
-                colors: [Color(red: 0.16, green: 0.18, blue: 0.24), Color(red: 0.10, green: 0.11, blue: 0.15)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            // Elegant dark background matching the app theme
+            Color(red: 0.10, green: 0.12, blue: 0.15)
+                .ignoresSafeArea()
             
             VStack(spacing: 24) {
                 Spacer()
                 
-                // Stylized logo container matching our app icon logo
-                VStack(spacing: -10) {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 85, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color(red: 0.83, green: 0.93, blue: 1.0), Color(red: 0.63, green: 0.78, blue: 0.95)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .offset(x: 10, y: 0)
-                        .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 4)
-                    
-                    Image(systemName: "tray.and.arrow.down.fill")
-                        .font(.system(size: 75, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color(red: 0.35, green: 0.38, blue: 0.45), Color(red: 0.20, green: 0.22, blue: 0.26)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .shadow(color: Color.black.opacity(0.3), radius: 6, x: 0, y: 6)
-                }
-                .scaleEffect(scale)
-                .opacity(opacity)
-                .onAppear {
-                    withAnimation(.spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0).delay(0.2)) {
-                        scale = 1.0
-                        opacity = 1.0
+                // Actual App Icon Logo (perfectly centered, full-bleed branding)
+                Image("SnagLogo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 300, height: 300)
+                    .scaleEffect(scale)
+                    .opacity(opacity)
+                    .onAppear {
+                        withAnimation(.spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0).delay(0.2)) {
+                            scale = 1.0
+                            opacity = 1.0
+                        }
                     }
-                }
                 
                 Spacer()
                 
