@@ -1067,7 +1067,7 @@ struct NowPlayingView: View {
 
             VStack(spacing: 0) {
                 playerHeader
-                    .frame(width: geometry.size.width - 36)
+                    .frame(width: max(0, geometry.size.width - 36))
                     .padding(.top, 8)
 
                 playerSurface(artworkSize: artworkSize)
@@ -1075,7 +1075,7 @@ struct NowPlayingView: View {
                     .padding(.vertical, 10)
 
                 controlConsole
-                    .frame(width: geometry.size.width - 32)
+                    .frame(width: max(0, geometry.size.width - 32))
                     .padding(.bottom, 6)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)

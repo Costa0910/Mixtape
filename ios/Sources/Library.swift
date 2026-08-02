@@ -272,7 +272,20 @@ enum Importer {
                                        metadata: [AVMetadataItem]) async -> String? {
         if let value = try? await asset.load(.lyrics),
            !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            logger.info("Found lyrics using standard asset lyrics reader.")
             return value
+        }
+
+        // Check for any metadata item whose key is a string case-insensitively matching "lyrics"
+        for item in metadata {
+            if let keyString = item.key as? String,
+               keyString.caseInsensitiveCompare("lyrics") == .orderedSame {
+                if let value = try? await item.load(.stringValue),
+                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    logger.info("Found lyrics in custom metadata item: '\(keyString)'")
+                    return value
+                }
+            }
         }
 
         let lyricIDs: [AVMetadataIdentifier] = [.iTunesMetadataLyrics, .id3MetadataUnsynchronizedLyric]
@@ -280,6 +293,7 @@ enum Importer {
             for item in AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: id) {
                 if let value = try? await item.load(.stringValue),
                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    logger.info("Found lyrics using metadata identifier: '\(id.rawValue)'")
                     return value
                 }
             }
@@ -295,7 +309,10 @@ enum Importer {
             }
         }
         for description in descriptions {
-            if let fallback = LyricsFallback.content(fromDescription: description) { return fallback }
+            if let fallback = LyricsFallback.content(fromDescription: description) {
+                logger.info("Found lyrics using fallback description parser.")
+                return fallback
+            }
         }
         return nil
     }
