@@ -4,8 +4,10 @@ import SwiftData
 import MediaPlayer
 import UIKit
 import CryptoKit
+import os
 
 enum Importer {
+    private static let logger = Logger(subsystem: "com.costa.SnagPlayer", category: "Importer")
     private static let lyricsScanRegistryKey = "lyricsMetadataScanV1"
     private static let artworkRepairRegistryKey = "contentAddressedArtworkV1"
 
@@ -27,20 +29,36 @@ enum Importer {
     /// Import audio file URLs into the library. Returns how many were added.
     @MainActor
     static func importFiles(_ urls: [URL], into ctx: ModelContext) async -> Int {
+        logger.info("Starting import pipeline for \(urls.count) URLs")
         var added = 0
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            guard Storage.isAudio(url) else { continue }
-            if let t = await makeTrack(from: url) { ctx.insert(t); added += 1 }
+            guard Storage.isAudio(url) else {
+                logger.warning("Skipping non-audio file: \(url.lastPathComponent)")
+                continue
+            }
+            if let t = await makeTrack(from: url) {
+                ctx.insert(t)
+                added += 1
+                logger.info("Successfully imported and inserted track: '\(t.title)' by '\(t.artist)'")
+            } else {
+                logger.error("Failed to import track from URL: \(url.lastPathComponent)")
+            }
         }
-        try? ctx.save()
+        do {
+            try ctx.save()
+            logger.info("Saved context successfully. Added \(added) tracks.")
+        } catch {
+            logger.error("Failed to save SwiftData context after import: \(error.localizedDescription)")
+        }
         return added
     }
 
     /// Copy a file into the app's Media store and read its metadata.
     static func makeTrack(from src: URL, albumSubfolder: String? = nil, sourcePath: String? = nil,
                           sourceSize: Int64? = nil) async -> Track? {
+        logger.info("Processing source track file: \(src.lastPathComponent)")
         let asset = AVURLAsset(url: src)
         var title = src.deletingPathExtension().lastPathComponent
         var artist = "", album = "", genre = ""
@@ -90,13 +108,20 @@ enum Importer {
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
             if !FileManager.default.fileExists(atPath: dest.path) {
                 try FileManager.default.copyItem(at: src, to: dest)
+                logger.info("Copied audio file to destination: \(audioRel)")
+            } else {
+                logger.info("Destination audio file already exists, skipping copy: \(audioRel)")
             }
-        } catch { return nil }
+        } catch {
+            logger.error("Failed to copy file to media store: \(error.localizedDescription) at path: \(dest.path)")
+            return nil
+        }
 
         let artRel = artworkData.flatMap(storeArtwork)
         let normalizationGainDB = await Task.detached(priority: .utility) {
             LoudnessAnalyzer.analyze(dest) ?? 0
         }.value
+        logger.info("Metadata parsed successfully - Title: '\(title)', Artist: '\(artist)', Album: '\(album)', Duration: \(duration)s, Gain: \(normalizationGainDB) dB")
         return Track(title: title, artist: artist, album: album, genre: genre,
                      relPath: audioRel, artworkRel: artRel, duration: duration, trackNo: 0,
                      sourcePath: sourcePath, sourceSize: sourceSize, lyrics: lyrics.isEmpty ? nil : lyrics,
@@ -117,9 +142,11 @@ enum Importer {
         do {
             if !FileManager.default.fileExists(atPath: out.path) {
                 try data.write(to: out, options: .atomic)
+                logger.info("Stored new content-addressed artwork: \(rel)")
             }
             return rel
         } catch {
+            logger.error("Failed to write artwork file to \(out.path): \(error.localizedDescription)")
             return nil
         }
     }
@@ -130,6 +157,7 @@ enum Importer {
     @MainActor
     static func repairArtworkIfNeeded(in tracks: [Track], context: ModelContext) async -> Int {
         guard !UserDefaults.standard.bool(forKey: artworkRepairRegistryKey), !tracks.isEmpty else { return 0 }
+        logger.info("Starting artwork repair check for \(tracks.count) tracks...")
         let candidates = tracks.map { ArtworkCandidate(id: $0.id, url: $0.url) }
 
         let repaired = await Task.detached(priority: .utility) { () async -> [UUID: String] in
@@ -155,9 +183,13 @@ enum Importer {
             if let rel = repaired[track.id], track.artworkRel != rel {
                 track.artworkRel = rel
                 changed += 1
+                logger.info("Repaired artwork path for track '\(track.title)': \(rel)")
             }
         }
-        if changed > 0 { try? context.save() }
+        if changed > 0 {
+            try? context.save()
+            logger.info("Saved context successfully after repairing \(changed) artwork paths.")
+        }
         UserDefaults.standard.set(true, forKey: artworkRepairRegistryKey)
         return changed
     }
@@ -176,6 +208,7 @@ enum Importer {
             return LyricsCandidate(id: track.id, url: track.url)
         }
         guard !candidates.isEmpty else { return 0 }
+        logger.info("Found \(candidates.count) tracks candidate for lyrics scan.")
 
         // AVAsset metadata inspection can take seconds across a large library.
         // Keep the entire scan off MainActor and only apply plain results here.
@@ -195,12 +228,20 @@ enum Importer {
         }.value
 
         let tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
-        for (id, lyrics) in scan.lyricsByID { tracksByID[id]?.lyrics = lyrics }
+        for (id, lyrics) in scan.lyricsByID {
+            if let track = tracksByID[id] {
+                track.lyrics = lyrics
+                logger.info("Scanned and updated lyrics for track: '\(track.title)'")
+            }
+        }
         let scanned = previouslyScanned.union(scan.attemptedIDs)
         UserDefaults.standard.set(scanned.map(\.uuidString), forKey: lyricsScanRegistryKey)
 
         let updated = scan.lyricsByID.count
-        if updated > 0 { try? context.save() }
+        if updated > 0 {
+            try? context.save()
+            logger.info("Saved context successfully after refreshing lyrics for \(updated) tracks.")
+        }
         return updated
     }
 
@@ -212,13 +253,18 @@ enum Importer {
         for track in tracks where track.normalizationGainDB == nil {
             if Task.isCancelled { break }
             let url = track.url
+            logger.info("Analyzing missing loudness normalization for track '\(track.title)'")
             let gain = await Task.detached(priority: .utility) {
                 LoudnessAnalyzer.analyze(url)
             }.value
             track.normalizationGainDB = gain ?? 0
             updated += 1
+            logger.info("Loudness normalization analysis completed for track '\(track.title)': \(gain ?? 0) dB")
         }
-        if updated > 0 { try? context.save() }
+        if updated > 0 {
+            try? context.save()
+            logger.info("Saved context successfully after analyzing \(updated) tracks.")
+        }
         return updated
     }
 
