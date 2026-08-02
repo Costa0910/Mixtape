@@ -268,6 +268,21 @@ enum Importer {
         return updated
     }
 
+    private static func stringKey(from key: AnyObject) -> String? {
+        if let s = key as? String { return s }
+        if let val = key as? Int {
+            let u32 = UInt32(bitPattern: Int32(val))
+            let bytes = [
+                UInt8((u32 >> 24) & 0xff),
+                UInt8((u32 >> 16) & 0xff),
+                UInt8((u32 >> 8) & 0xff),
+                UInt8(u32 & 0xff)
+            ]
+            return String(bytes.compactMap { $0 >= 32 && $0 <= 126 ? Character(UnicodeScalar($0)) : nil })
+        }
+        return nil
+    }
+
     private static func resolvedLyrics(from asset: AVURLAsset,
                                        metadata: [AVMetadataItem]) async -> String? {
         if let value = try? await asset.load(.lyrics),
@@ -301,11 +316,17 @@ enum Importer {
 
         var descriptions: [String] = []
         for item in metadata {
-            let identifier = item.identifier?.rawValue.lowercased() ?? ""
-            guard identifier.contains("description") || identifier.contains("comment")
-                    || identifier.contains("synopsis") || identifier.contains("information") else { continue }
-            if let value = try? await item.load(.stringValue), !value.isEmpty {
-                descriptions.append(value)
+            guard let key = item.key else { continue }
+            let keyStr = stringKey(from: key)?.lowercased() ?? ""
+            let idStr = item.identifier?.rawValue.lowercased() ?? ""
+            
+            let isComment = keyStr.contains("comment") || keyStr.contains("cmt") || idStr.contains("comment") || idStr.contains("cmt")
+            let isDescription = keyStr.contains("desc") || keyStr.contains("synopsis") || keyStr == "ldes" || idStr.contains("desc") || idStr.contains("synopsis") || idStr.contains("ldes")
+            
+            if isComment || isDescription {
+                if let value = try? await item.load(.stringValue), !value.isEmpty {
+                    descriptions.append(value)
+                }
             }
         }
         for description in descriptions {
