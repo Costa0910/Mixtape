@@ -86,6 +86,7 @@ struct RootView: View {
         .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomPlaybackDock(selection: $selectedTab, showNowPlaying: $showNowPlaying)
+                .padding(.bottom, -18)
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         }
         .fullScreenCover(isPresented: $showNowPlaying) { NowPlayingView() }
@@ -230,8 +231,6 @@ private struct IntegratedDockTabBar: View {
 
 private struct LoadingView: View {
     @State private var isAnimating = false
-    @State private var scale: CGFloat = 0.8
-    @State private var opacity: Double = 0.0
 
     var body: some View {
         ZStack {
@@ -242,19 +241,11 @@ private struct LoadingView: View {
             VStack(spacing: 24) {
                 Spacer()
                 
-                // Actual App Icon Logo (perfectly centered, full-bleed branding)
+                // Actual Brand Logo (perfectly centered, transparent, seamless integration)
                 Image("SnagLogo")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 300, height: 300)
-                    .scaleEffect(scale)
-                    .opacity(opacity)
-                    .onAppear {
-                        withAnimation(.spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0).delay(0.2)) {
-                            scale = 1.0
-                            opacity = 1.0
-                        }
-                    }
+                    .frame(width: 160, height: 160)
                 
                 Spacer()
                 
@@ -282,7 +273,6 @@ private struct LoadingView: View {
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
-                .opacity(opacity)
                 .padding(.bottom, 50)
             }
         }
