@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import os
 
 // Pulls the library from the Snag Mac app over Wi‑Fi (its PIN-protected web server).
 @MainActor
@@ -7,6 +8,8 @@ final class SyncClient: ObservableObject {
     @Published var status = ""
     @Published var progress = 0.0
     @Published var busy = false
+
+    private let logger = Logger(subsystem: "com.costa.SnagPlayer", category: "SyncClient")
 
     struct Manifest: Decodable {
         let tracks: [Item]
@@ -29,14 +32,25 @@ final class SyncClient: ObservableObject {
 
         let host = rawHost.trimmingCharacters(in: .whitespaces)
         let base = host.hasPrefix("http") ? host : "http://\(host)"
-        guard let baseURL = URL(string: base) else { status = "That address doesn't look right."; return }
+        guard let baseURL = URL(string: base) else {
+            status = "That address doesn't look right."
+            logger.error("Invalid host URL configured: \(rawHost)")
+            return
+        }
 
+        logger.info("Sync started. Authenticating with Snag Mac server at \(base)...")
         // 1) authenticate (server sets a session cookie stored by URLSession)
         var login = URLRequest(url: baseURL.appendingPathComponent("login"))
         login.httpMethod = "POST"
         login.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         login.httpBody = "pin=\(pin)".data(using: .utf8)
-        _ = try? await URLSession.shared.data(for: login)
+        
+        do {
+            _ = try await URLSession.shared.data(for: login)
+            logger.info("Sent login request to server.")
+        } catch {
+            logger.error("Authentication request failed: \(error.localizedDescription)")
+        }
 
         // 2) fetch the manifest
         status = "Reading your Mac's library…"
@@ -45,8 +59,10 @@ final class SyncClient: ObservableObject {
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let manifest = try? JSONDecoder().decode(Manifest.self, from: mdata) else {
             status = "Couldn't reach Snag on the Mac. Check the address, PIN, and that Wireless is on."
+            logger.error("Failed to reach server manifest endpoint or parse response.")
             return
         }
+        logger.info("Successfully fetched manifest containing \(manifest.tracks.count) tracks.")
 
         // 3) download the tracks we don't have yet
         let localTracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
@@ -69,19 +85,24 @@ final class SyncClient: ObservableObject {
                     continue
                 }
                 todo.append((item, matchedTrack))
+                logger.info("Queued track for replacement/refresh (size mismatch): '\(item.path)'")
             } else {
                 todo.append((item, nil))
+                logger.info("Queued track for download (new track): '\(item.path)'")
             }
         }
         if updatedAny {
             try? ctx.save()
+            logger.info("Saved local context updates for matched tracks.")
         }
 
         if todo.isEmpty {
+            logger.info("No new or updated tracks found to download. Library is up to date.")
             await syncPlaylists(manifest.playlists, into: ctx)
             status = "Up to date — \(manifest.tracks.count) tracks."; progress = 1; return
         }
 
+        logger.info("Starting downloads for \(todo.count) tracks...")
         var done = 0
         var refreshed = 0
         for pending in todo {
@@ -90,7 +111,10 @@ final class SyncClient: ObservableObject {
             let enc = item.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? item.path
             guard let fileURL = URL(string: "\(base)/f/\(enc)"),
                   let (tmp, response) = try? await URLSession.shared.download(from: fileURL),
-                  (response as? HTTPURLResponse)?.statusCode == 200 else { continue }
+                  (response as? HTTPURLResponse)?.statusCode == 200 else {
+                logger.error("Failed to download track from server: \(item.path)")
+                continue
+            }
 
             let pathParts = item.path.split(separator: "/")
             let serverAlbum = pathParts.count >= 2 ? String(pathParts[0]) : nil
@@ -99,20 +123,31 @@ final class SyncClient: ObservableObject {
                 .appendingPathComponent((item.path as NSString).lastPathComponent)
             try? FileManager.default.removeItem(at: named)
             try? FileManager.default.moveItem(at: tmp, to: named)
+            
+            logger.info("Importing downloaded file: \(named.lastPathComponent)")
             if let track = await Importer.makeTrack(from: named, albumSubfolder: serverAlbum,
                                                     sourcePath: item.path, sourceSize: Int64(item.size)) {
                 if let existing = pending.replacing {
                     replace(existing, with: track)
                     refreshed += 1
+                    logger.info("Successfully refreshed existing track: '\(track.title)'")
                 } else {
                     ctx.insert(track)
+                    logger.info("Successfully inserted new track: '\(track.title)'")
                 }
                 done += 1
+            } else {
+                logger.error("Failed to import downloaded track: \(item.path)")
             }
             try? FileManager.default.removeItem(at: named)
             progress = Double(done) / Double(todo.count)
         }
-        try? ctx.save()
+        do {
+            try ctx.save()
+            logger.info("Saved SwiftData context successfully after downloading tracks.")
+        } catch {
+            logger.error("Failed to save SwiftData context after downloading: \(error.localizedDescription)")
+        }
 
         await syncPlaylists(manifest.playlists, into: ctx)
 
@@ -120,6 +155,7 @@ final class SyncClient: ObservableObject {
         status = refreshed > 0
             ? "Synced \(newCount) new and refreshed \(refreshed) track\(refreshed == 1 ? "" : "s") 🎉"
             : "Synced \(newCount) new track\(newCount == 1 ? "" : "s") 🎉"
+        logger.info("Sync session finished. New: \(newCount), Refreshed: \(refreshed)")
         progress = 1
     }
 
