@@ -1063,270 +1063,27 @@ struct NowPlayingView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let surfaceSize = max(1, min(340, geometry.size.width - 68, geometry.size.height * 0.38))
+            let artworkSize = max(1, min(358, geometry.size.width - 48, geometry.size.height * 0.40))
 
             VStack(spacing: 0) {
-                Capsule().fill(.secondary.opacity(0.55)).frame(width: 40, height: 5).padding(.top, 10)
-
-                if surface == .lyrics {
-                    // Full Screen Timed Lyrics View
-                    VStack(spacing: 16) {
-                        // Mini Header
-                        HStack(spacing: 12) {
-                            SquareArtwork(url: player.current?.artworkURL, corner: 6)
-                                .frame(width: 48, height: 48)
-                                .shadow(radius: 4)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(player.current?.title ?? "").font(.headline).foregroundStyle(.primary).lineLimit(1)
-                                Text(player.current?.artist ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                            Spacer()
-
-                            // Heart button
-                            Button {
-                                guard let t = player.current else { return }
-                                Haptics.rigid(); withAnimation(.bouncy) {
-                                    t.loved.toggle()
-                                    try? ctx.save()
-                                }
-                            } label: {
-                                Image(systemName: (player.current?.loved ?? false) ? "heart.fill" : "heart")
-                                    .font(.title3)
-                                    .foregroundStyle((player.current?.loved ?? false) ? Color.pink : Color.secondary)
-                            }
-                            .buttonStyle(Pressable(scale: 0.8))
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.top, 8)
-
-                        // Large Timed Lyrics (Left aligned)
-                        if timedLyrics.isEmpty {
-                            ScrollView(showsIndicators: false) {
-                                Text(player.current?.lyrics ?? "")
-                                    .font(.system(size: 24, weight: .semibold))
-                                    .foregroundStyle(.primary.opacity(0.9))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 24)
-                                    .padding(.vertical, 48)
-                            }
-                        } else {
-                            TimedLyricsView(lines: timedLyrics)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.opacity)
-                } else if surface == .queue {
-                    InlineQueueView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.horizontal, 34)
-                        .transition(.opacity)
-                } else {
-                    // Original artwork and title presentation.
-                    VStack(spacing: 18) {
-                        SquareArtwork(url: player.current?.artworkURL, corner: 22)
-                            .frame(width: surfaceSize, height: surfaceSize)
-                            .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
-                            .offset(x: artDrag)
-                            .contentShape(Rectangle())
-                            .gesture(
-                                DragGesture(minimumDistance: 20)
-                                    .onChanged { v in
-                                        if abs(v.translation.width) > abs(v.translation.height) { artDrag = v.translation.width / 3 }
-                                    }
-                                    .onEnded { v in
-                                        let dx = v.translation.width, dy = v.translation.height
-                                        if reduceMotion { artDrag = 0 }
-                                        else { withAnimation(.snappy) { artDrag = 0 } }
-                                        if abs(dx) > abs(dy) {
-                                            if dx < -60 { player.next(userInitiated: true); Haptics.soft() }
-                                            else if dx > 60 { player.previous(); Haptics.soft() }
-                                        } else if dy > 90 { dismiss() }
-                                    }
-                            )
-                            .onTapGesture {
-                                if let lyrics = player.current?.lyrics, !lyrics.isEmpty {
-                                    changeSurface(to: .lyrics)
-                                }
-                            }
-                            .frame(maxHeight: .infinity, alignment: .center)
-
-                        // Title Row (No lyrics button here to prevent clipping)
-                        HStack(alignment: .center) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(player.current?.title ?? "").font(.title2.bold()).tracking(-0.4).lineLimit(1)
-                                    .foregroundStyle(.primary)
-                                Text(player.current?.artist ?? "").font(.title3).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                            Spacer(minLength: 12)
-
-                            Button {
-                                guard let t = player.current else { return }
-                                Haptics.rigid(); withAnimation(.bouncy) {
-                                    t.loved.toggle()
-                                    try? ctx.save()
-                                }
-                            } label: {
-                                Image(systemName: (player.current?.loved ?? false) ? "heart.fill" : "heart")
-                                    .font(.title2)
-                                    .foregroundStyle((player.current?.loved ?? false) ? Color.pink : Color.secondary)
-                                    .symbolEffect(.bounce, value: player.current?.loved)
-                            }.buttonStyle(Pressable(scale: 0.8))
-
-                            Menu {
-                                Button {
-                                    if let current = player.current {
-                                        activeMenuTrack = current
-                                        showingPlaylistSheet = true
-                                    }
-                                } label: {
-                                    Label("Add to Playlist…", systemImage: "text.badge.plus")
-                                }
-
-                                Button(role: .destructive) {
-                                    if let current = player.current {
-                                        trackPendingDeletion = current
-                                    }
-                                } label: {
-                                    Label("Delete from Library", systemImage: "trash")
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis.circle")
-                                    .font(.title2)
-                                    .foregroundStyle(.secondary)
-                            }.buttonStyle(Pressable(scale: 0.8))
-                        }
-                        .padding(.horizontal, 34)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                playerHeader
+                    .frame(width: geometry.size.width - 36)
                     .padding(.top, 8)
-                    .transition(.opacity)
-                }
 
-                Scrubber()
-                    .padding(.horizontal, 34)
-                    .padding(.top, 20)
+                playerSurface(artworkSize: artworkSize)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.vertical, 10)
 
-                HStack(spacing: 44) {
-                    Button { player.previous(); Haptics.soft() } label: {
-                        Image(systemName: "backward.fill").font(.title)
-                    }.buttonStyle(Pressable(scale: 0.85))
-                    Button { player.playPause(); Haptics.rigid() } label: {
-                        Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 72))
-                            .contentTransition(.symbolEffect(.replace))
-                    }.buttonStyle(Pressable(scale: 0.9))
-                    Button { player.next(userInitiated: true); Haptics.soft() } label: {
-                        Image(systemName: "forward.fill").font(.title)
-                    }.buttonStyle(Pressable(scale: 0.85))
-                }
-                .foregroundStyle(.primary)
-                .padding(.top, 4)
-
-                SystemVolumeControl()
-                    .padding(.horizontal, 34)
-                    .padding(.top, 2)
-
-                // Bottom row with Lyrics Toggle on the far left
-                HStack(spacing: 34) {
-                    Button {
-                        Haptics.soft()
-                        changeSurface(to: surface == .lyrics ? .artwork : .lyrics)
-                    } label: {
-                        Image(systemName: "quote.bubble")
-                            .foregroundStyle(surface == .lyrics ? Color.indigo : Color.secondary)
-                    }
-                    .buttonStyle(Pressable(scale: 0.8))
-                    .disabled(player.current?.lyrics?.isEmpty != false)
-                    .opacity(player.current?.lyrics?.isEmpty != false ? 0.25 : 1.0)
-                    .accessibilityLabel(surface == .lyrics ? "Hide lyrics" : "Show lyrics")
-                    .accessibilityValue(surface == .lyrics ? "On" : "Off")
-
-                    Button { Haptics.select(); player.toggleShuffle() } label: {
-                        Image(systemName: "shuffle")
-                            .foregroundStyle(player.shuffle ? Color.indigo : Color.secondary)
-                    }.buttonStyle(Pressable(scale: 0.8))
-                    .accessibilityValue(player.shuffle ? "On" : "Off")
-
-                    Button { Haptics.select(); player.autoplay.toggle() } label: {
-                        Image(systemName: "infinity")
-                            .foregroundStyle(player.autoplay ? Color.indigo : Color.secondary)
-                    }.buttonStyle(Pressable(scale: 0.8))
-                    .accessibilityLabel("Autoplay")
-                    .accessibilityValue(player.autoplay ? "On" : "Off")
-
-                    Menu {
-                        if player.sleepTimerRemaining != nil || player.sleepTimerEndBlock {
-                            Section("Active Timer") {
-                                if let remaining = player.sleepTimerRemaining {
-                                    let mins = Int(remaining) / 60
-                                    let secs = Int(remaining) % 60
-                                    Button("Cancel Timer (\(String(format: "%d:%02d", mins, secs)) left)", role: .destructive) {
-                                        player.setSleepTimer(minutes: nil)
-                                    }
-                                } else if player.sleepTimerEndBlock {
-                                    Button("Cancel (End of Song)", role: .destructive) {
-                                        player.setSleepTimer(minutes: nil)
-                                    }
-                                }
-                            }
-                        }
-                        Section("Set Timer") {
-                            Button("End of Current Song") {
-                                player.setSleepTimerEndBlock()
-                            }
-                            Button("15 Minutes") {
-                                player.setSleepTimer(minutes: 15)
-                            }
-                            Button("30 Minutes") {
-                                player.setSleepTimer(minutes: 30)
-                            }
-                            Button("45 Minutes") {
-                                player.setSleepTimer(minutes: 45)
-                            }
-                            Button("60 Minutes") {
-                                player.setSleepTimer(minutes: 60)
-                            }
-                        }
-                    } label: {
-                        VStack(spacing: 1) {
-                            Image(systemName: "timer")
-                                .font(.title3)
-                                .foregroundStyle((player.sleepTimerRemaining != nil || player.sleepTimerEndBlock) ? Color.indigo : Color.secondary)
-                            if let remaining = player.sleepTimerRemaining {
-                                let mins = Int(remaining) / 60
-                                let secs = Int(remaining) % 60
-                                Text(String(format: "%d:%02d", mins, secs))
-                                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(Color.indigo)
-                            } else if player.sleepTimerEndBlock {
-                                Text("End")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(Color.indigo)
-                            }
-                        }
-                        .frame(height: 32)
-                    }
-
-                    Button { Haptics.select(); player.cycleRepeat() } label: {
-                        Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                            .foregroundStyle(player.repeatMode == .off ? Color.secondary : Color.indigo)
-                    }.buttonStyle(Pressable(scale: 0.8))
-                    .accessibilityValue(player.repeatMode == .off ? "Off" : (player.repeatMode == .one ? "One" : "All"))
-                }
-                .font(.title3)
-                .padding(.top, 2)
-
-                AirPlayButton(tint: .secondaryLabel)
-                    .frame(width: 44, height: 30)
-                    .padding(.top, 2)
+                controlConsole
+                    .frame(width: geometry.size.width - 32)
+                    .padding(.bottom, 6)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                AmbientBackground(url: player.current?.artworkURL)
-                    .animation(reduceMotion ? nil : .settled, value: player.current?.id)
-            )
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .background(
+            AmbientBackground(url: player.current?.artworkURL)
+                .animation(reduceMotion ? nil : .settled, value: player.current?.id)
+        )
         .onChange(of: player.current?.id) { _, _ in
             if player.current?.lyrics?.isEmpty != false, surface == .lyrics { surface = .artwork }
         }
@@ -1342,30 +1099,338 @@ struct NowPlayingView: View {
         } message: {
             Text("This removes the audio file from this iPhone. You can sync it again from your Mac.")
         }
-        .overlay(alignment: .topLeading) {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.down").font(.body.weight(.semibold)).padding(14)
-                    .foregroundStyle(.primary.opacity(0.85))
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            Button {
-                Haptics.select()
-                changeSurface(to: surface == .queue ? .artwork : .queue)
-            } label: {
-                Image(systemName: "list.bullet").font(.body.weight(.semibold)).padding(14)
-                    .foregroundStyle(.primary.opacity(0.85))
-            }
-            .accessibilityLabel(surface == .queue ? "Hide queue" : "Show queue")
-            .accessibilityValue(surface == .queue ? "On" : "Off")
-        }
         .sheet(isPresented: $showingPlaylistSheet) {
             if let track = activeMenuTrack {
                 AddToPlaylistSheet(track: track)
                     .presentationDetents([.medium, .large])
             }
         }
+    }
+
+    private var playerHeader: some View {
+        HStack {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.down")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 42, height: 42)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(Pressable(scale: 0.88))
+            .accessibilityLabel("Close player")
+
+            Spacer()
+
+            VStack(spacing: 5) {
+                Capsule()
+                    .fill(.secondary.opacity(0.55))
+                    .frame(width: 36, height: 4)
+                Text(surfaceTitle)
+                    .font(.caption2.weight(.semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+            }
+
+            Spacer()
+
+            Button {
+                Haptics.select()
+                changeSurface(to: surface == .queue ? .artwork : .queue)
+            } label: {
+                Image(systemName: "list.bullet")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(surface == .queue ? Color.indigo : Color.primary)
+                    .frame(width: 42, height: 42)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(Pressable(scale: 0.88))
+            .accessibilityLabel(surface == .queue ? "Hide queue" : "Show queue")
+            .accessibilityValue(surface == .queue ? "On" : "Off")
         }
+        .foregroundStyle(.primary)
+    }
+
+    private var surfaceTitle: String {
+        switch surface {
+        case .artwork: "Now Playing"
+        case .lyrics: "Lyrics"
+        case .queue: "Up Next"
+        }
+    }
+
+    @ViewBuilder
+    private func playerSurface(artworkSize: CGFloat) -> some View {
+        switch surface {
+        case .lyrics:
+            if timedLyrics.isEmpty {
+                ScrollView(showsIndicators: false) {
+                    Text(player.current?.lyrics ?? "")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(.primary.opacity(0.9))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 40)
+                }
+            } else {
+                TimedLyricsView(lines: timedLyrics)
+            }
+        case .queue:
+            InlineQueueView()
+                .padding(.horizontal, 16)
+        case .artwork:
+            SquareArtwork(url: player.current?.artworkURL, corner: 28)
+                .frame(width: artworkSize, height: artworkSize)
+                .shadow(color: .black.opacity(0.34), radius: 28, y: 16)
+                .offset(x: artDrag)
+                .contentShape(Rectangle())
+                .gesture(artworkGesture)
+                .onTapGesture {
+                    if player.current?.lyrics?.isEmpty == false {
+                        changeSurface(to: .lyrics)
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.985)))
+        }
+    }
+
+    private var artworkGesture: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onChanged { value in
+                if abs(value.translation.width) > abs(value.translation.height) {
+                    artDrag = value.translation.width / 3
+                }
+            }
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                if reduceMotion { artDrag = 0 }
+                else { withAnimation(.snappy) { artDrag = 0 } }
+
+                if abs(dx) > abs(dy) {
+                    if dx < -60 { player.next(userInitiated: true); Haptics.soft() }
+                    else if dx > 60 { player.previous(); Haptics.soft() }
+                } else if dy > 90 {
+                    dismiss()
+                }
+            }
+    }
+
+    private var controlConsole: some View {
+        VStack(spacing: 10) {
+            trackIdentity
+            Scrubber()
+            transportControls
+            SystemVolumeControl()
+            secondaryControls
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+        .playerControlSurface(cornerRadius: 30)
+    }
+
+    private var trackIdentity: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(player.current?.title ?? "")
+                    .font(.title3.weight(.bold))
+                    .tracking(-0.25)
+                    .lineLimit(1)
+                Text(player.current?.artist ?? "")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                guard let track = player.current else { return }
+                Haptics.rigid()
+                withAnimation(.bouncy) {
+                    track.loved.toggle()
+                    try? ctx.save()
+                }
+            } label: {
+                Image(systemName: (player.current?.loved ?? false) ? "heart.fill" : "heart")
+                    .font(.title3)
+                    .foregroundStyle((player.current?.loved ?? false) ? Color.pink : Color.secondary)
+                    .symbolEffect(.bounce, value: player.current?.loved)
+                    .frame(width: 42, height: 42)
+            }
+            .buttonStyle(Pressable(scale: 0.82))
+            .accessibilityLabel((player.current?.loved ?? false) ? "Remove from favorites" : "Add to favorites")
+
+            trackMenu
+        }
+    }
+
+    private var trackMenu: some View {
+        Menu {
+            Button {
+                if let current = player.current {
+                    activeMenuTrack = current
+                    showingPlaylistSheet = true
+                }
+            } label: {
+                Label("Add to Playlist…", systemImage: "text.badge.plus")
+            }
+
+            Button(role: .destructive) {
+                if let current = player.current { trackPendingDeletion = current }
+            } label: {
+                Label("Delete from Library", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 42, height: 42)
+                .contentShape(Circle())
+        }
+        .buttonStyle(Pressable(scale: 0.82))
+        .accessibilityLabel("More")
+    }
+
+    private var transportControls: some View {
+        HStack {
+            Button { player.previous(); Haptics.soft() } label: {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 25, weight: .semibold))
+                    .frame(width: 58, height: 58)
+            }
+            .buttonStyle(Pressable(scale: 0.86))
+            .accessibilityLabel("Previous")
+
+            Spacer()
+
+            Button { player.playPause(); Haptics.rigid() } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 27, weight: .bold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .foregroundStyle(Color(uiColor: .systemBackground))
+                    .frame(width: 68, height: 68)
+                    .background(Color.primary, in: Circle())
+            }
+            .buttonStyle(Pressable(scale: 0.91))
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+
+            Spacer()
+
+            Button { player.next(userInitiated: true); Haptics.soft() } label: {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 25, weight: .semibold))
+                    .frame(width: 58, height: 58)
+            }
+            .buttonStyle(Pressable(scale: 0.86))
+            .accessibilityLabel("Next")
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 12)
+    }
+
+    private var secondaryControls: some View {
+        HStack {
+            Button {
+                Haptics.soft()
+                changeSurface(to: surface == .lyrics ? .artwork : .lyrics)
+            } label: {
+                Image(systemName: "quote.bubble")
+                    .foregroundStyle(surface == .lyrics ? Color.indigo : Color.secondary)
+                    .frame(width: 40, height: 36)
+            }
+            .buttonStyle(Pressable(scale: 0.8))
+            .disabled(player.current?.lyrics?.isEmpty != false)
+            .opacity(player.current?.lyrics?.isEmpty != false ? 0.25 : 1)
+            .accessibilityLabel(surface == .lyrics ? "Hide lyrics" : "Show lyrics")
+            .accessibilityValue(surface == .lyrics ? "On" : "Off")
+
+            Spacer()
+
+            Button { Haptics.select(); player.toggleShuffle() } label: {
+                Image(systemName: "shuffle")
+                    .foregroundStyle(player.shuffle ? Color.indigo : Color.secondary)
+                    .frame(width: 40, height: 36)
+            }
+            .buttonStyle(Pressable(scale: 0.8))
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(player.shuffle ? "On" : "Off")
+
+            Spacer()
+
+            Button { Haptics.select(); player.autoplay.toggle() } label: {
+                Image(systemName: "infinity")
+                    .foregroundStyle(player.autoplay ? Color.indigo : Color.secondary)
+                    .frame(width: 40, height: 36)
+            }
+            .buttonStyle(Pressable(scale: 0.8))
+            .accessibilityLabel("Autoplay")
+            .accessibilityValue(player.autoplay ? "On" : "Off")
+
+            Spacer()
+
+            sleepTimerMenu
+
+            Spacer()
+
+            Button { Haptics.select(); player.cycleRepeat() } label: {
+                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                    .foregroundStyle(player.repeatMode == .off ? Color.secondary : Color.indigo)
+                    .frame(width: 40, height: 36)
+            }
+            .buttonStyle(Pressable(scale: 0.8))
+            .accessibilityLabel("Repeat")
+            .accessibilityValue(player.repeatMode == .off ? "Off" : (player.repeatMode == .one ? "One" : "All"))
+
+            Spacer()
+
+            AirPlayButton(tint: .secondaryLabel)
+                .frame(width: 40, height: 36)
+                .accessibilityLabel("AirPlay")
+        }
+        .font(.title3)
+    }
+
+    private var sleepTimerMenu: some View {
+        Menu {
+            if player.sleepTimerRemaining != nil || player.sleepTimerEndBlock {
+                Section("Active Timer") {
+                    if let remaining = player.sleepTimerRemaining {
+                        let mins = Int(remaining) / 60
+                        let secs = Int(remaining) % 60
+                        Button("Cancel Timer (\(String(format: "%d:%02d", mins, secs)) left)", role: .destructive) {
+                            player.setSleepTimer(minutes: nil)
+                        }
+                    } else if player.sleepTimerEndBlock {
+                        Button("Cancel (End of Song)", role: .destructive) {
+                            player.setSleepTimer(minutes: nil)
+                        }
+                    }
+                }
+            }
+            Section("Set Timer") {
+                Button("End of Current Song") { player.setSleepTimerEndBlock() }
+                Button("15 Minutes") { player.setSleepTimer(minutes: 15) }
+                Button("30 Minutes") { player.setSleepTimer(minutes: 30) }
+                Button("45 Minutes") { player.setSleepTimer(minutes: 45) }
+                Button("60 Minutes") { player.setSleepTimer(minutes: 60) }
+            }
+        } label: {
+            VStack(spacing: 1) {
+                Image(systemName: "timer")
+                    .foregroundStyle((player.sleepTimerRemaining != nil || player.sleepTimerEndBlock) ? Color.indigo : Color.secondary)
+                if let remaining = player.sleepTimerRemaining {
+                    Text(String(format: "%d:%02d", Int(remaining) / 60, Int(remaining) % 60))
+                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.indigo)
+                } else if player.sleepTimerEndBlock {
+                    Text("End")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.indigo)
+                }
+            }
+            .frame(width: 40, height: 36)
+        }
+        .accessibilityLabel("Sleep timer")
     }
 
     private func changeSurface(to destination: PlayerSurface) {

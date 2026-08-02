@@ -104,4 +104,21 @@ extension View {
     func balancedGlassCard() -> some View {
         modifier(BalancedGlassCard())
     }
+
+    /// A quiet, non-reactive glass surface for dense playback controls. The
+    /// controls provide their own pressed feedback, so the whole console should
+    /// not distort when a single button is touched.
+    @ViewBuilder
+    func playerControlSurface(cornerRadius: CGFloat = 30) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            self
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(.primary.opacity(0.12), lineWidth: 0.5)
+                )
+        }
+    }
 }

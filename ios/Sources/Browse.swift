@@ -333,6 +333,7 @@ struct SystemVolumeControl: View {
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             Image(systemName: "speaker.fill")
+                .font(.system(size: 13, weight: .medium))
                 .frame(width: 16, height: 32, alignment: .center)
                 .accessibilityHidden(true)
             SystemVolumeSlider()
@@ -340,11 +341,11 @@ struct SystemVolumeControl: View {
                 .frame(height: 32, alignment: .center)
                 .accessibilityLabel("Volume")
             Image(systemName: "speaker.wave.3.fill")
+                .font(.system(size: 13, weight: .medium))
                 .frame(width: 16, height: 32, alignment: .center)
                 .accessibilityHidden(true)
         }
         .frame(height: 32, alignment: .center)
-        .font(.caption)
         .foregroundStyle(.secondary)
     }
 }
@@ -356,45 +357,39 @@ private struct SystemVolumeSlider: View {
     var body: some View {
         Slider(value: $previewVolume, in: 0...1)
             .tint(.primary)
+            .frame(height: 32, alignment: .center)
             .accessibilityHint("System volume changes require a physical iPhone")
     }
 #else
-    // The physical iPhone capture places both icon centers at 1560.5 px.
-    // A 3.5-pt offset placed the track at 1566.5 px, so 0.5 pt centers it.
-    var body: some View { DeviceSystemVolumeSlider().offset(y: 0.5) }
+    var body: some View {
+        DeviceSystemVolumeSlider()
+            .frame(height: 23)
+            .offset(y: 2.7)
+            .frame(height: 32, alignment: .center)
+    }
 #endif
 }
 
 #if !targetEnvironment(simulator)
-private final class VerticallyCenteredVolumeView: MPVolumeView {
+private final class StyledVolumeView: MPVolumeView {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let slider = subviews.compactMap({ $0 as? UISlider }).first else { return }
-        var frame = slider.frame
-        frame.origin.y = (bounds.height - frame.height) / 2
-        slider.frame = frame
+        slider.minimumTrackTintColor = .label
+        slider.maximumTrackTintColor = .tertiaryLabel
+        slider.tintColor = .label
     }
 }
 
 private struct DeviceSystemVolumeSlider: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
-        let view = VerticallyCenteredVolumeView(frame: .zero)
+        let view = StyledVolumeView(frame: .zero)
         view.showsVolumeSlider = true
         // Routing has its own AVRoutePickerView directly below the player.
         view.showsRouteButton = false
-        styleSlider(in: view)
         return view
     }
 
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {
-        styleSlider(in: uiView)
-    }
-
-    private func styleSlider(in view: MPVolumeView) {
-        guard let slider = view.subviews.compactMap({ $0 as? UISlider }).first else { return }
-        slider.minimumTrackTintColor = .label
-        slider.maximumTrackTintColor = .tertiaryLabel
-        slider.tintColor = .label
-    }
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
 }
 #endif

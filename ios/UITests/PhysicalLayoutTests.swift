@@ -40,5 +40,6 @@ final class PhysicalLayoutTests: XCTestCase {
         print("PHYSICAL_UI_HIERARCHY_BEGIN")
         print(app.debugDescription)
         print("PHYSICAL_UI_HIERARCHY_END")
+        app.terminate()
     }
 }

@@ -29,11 +29,14 @@ struct RootView: View {
     @AppStorage("didOnboard") private var didOnboard = false
     @State private var selectedTab: AppTab = .listenNow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
             if didOnboard { content } else { OnboardingView(done: $didOnboard) }
         }
+        .id(colorScheme)
             .task {
                 // dev-only: import any audio dropped into Documents (for testing)
                 guard ProcessInfo.processInfo.environment["SNAG_SEED"] != nil,
