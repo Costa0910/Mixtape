@@ -31,25 +31,45 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
+    @State private var isLoading = true
 
     var body: some View {
-        Group {
-            if didOnboard { content } else { OnboardingView(done: $didOnboard) }
+        ZStack {
+            if isLoading {
+                LoadingView()
+                    .transition(.opacity)
+            } else {
+                Group {
+                    if didOnboard { content } else { OnboardingView(done: $didOnboard) }
+                }
+                .transition(.opacity)
+            }
         }
         .id(colorScheme)
-            .task {
-                // dev-only: import any audio dropped into Documents (for testing)
-                guard ProcessInfo.processInfo.environment["SNAG_SEED"] != nil,
-                      ((try? ctx.fetchCount(FetchDescriptor<Track>())) ?? 0) == 0 else { return }
+        .task {
+            let startTime = Date()
+            
+            // dev-only: import any audio dropped into Documents (for testing)
+            if ProcessInfo.processInfo.environment["SNAG_SEED"] != nil,
+               ((try? ctx.fetchCount(FetchDescriptor<Track>())) ?? 0) == 0 {
                 let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
                 let audio = ((try? FileManager.default.contentsOfDirectory(at: docs, includingPropertiesForKeys: nil)) ?? [])
                     .filter { Storage.isAudio($0) }
                 if !audio.isEmpty { _ = await Importer.importFiles(audio, into: ctx) }
             }
-            .task {
-                let tracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
-                _ = await Importer.repairArtworkIfNeeded(in: tracks, context: ctx)
+            
+            let tracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
+            _ = await Importer.repairArtworkIfNeeded(in: tracks, context: ctx)
+            
+            let elapsed = Date().timeIntervalSince(startTime)
+            if elapsed < 1.5 {
+                try? await Task.sleep(nanoseconds: UInt64((1.5 - elapsed) * 1_000_000_000))
             }
+            
+            withAnimation(.easeInOut(duration: 0.5)) {
+                isLoading = false
+            }
+        }
     }
 
     private var content: some View {
@@ -203,6 +223,91 @@ private struct IntegratedDockTabBar: View {
                 .frame(maxWidth: .infinity)
                 .accessibilityLabel(tab.title)
                 .accessibilityAddTraits(selection == tab ? .isSelected : [])
+            }
+        }
+    }
+}
+
+private struct LoadingView: View {
+    @State private var isAnimating = false
+    @State private var scale: CGFloat = 0.8
+    @State private var opacity: Double = 0.0
+
+    var body: some View {
+        ZStack {
+            // Elegant dark gradient background
+            LinearGradient(
+                colors: [Color(red: 0.16, green: 0.18, blue: 0.24), Color(red: 0.10, green: 0.11, blue: 0.15)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            
+            VStack(spacing: 24) {
+                Spacer()
+                
+                // Stylized logo container matching our app icon logo
+                VStack(spacing: -10) {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 85, weight: .bold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color(red: 0.83, green: 0.93, blue: 1.0), Color(red: 0.63, green: 0.78, blue: 0.95)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .offset(x: 10, y: 0)
+                        .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 4)
+                    
+                    Image(systemName: "tray.and.arrow.down.fill")
+                        .font(.system(size: 75, weight: .bold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color(red: 0.35, green: 0.38, blue: 0.45), Color(red: 0.20, green: 0.22, blue: 0.26)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .shadow(color: Color.black.opacity(0.3), radius: 6, x: 0, y: 6)
+                }
+                .scaleEffect(scale)
+                .opacity(opacity)
+                .onAppear {
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0).delay(0.2)) {
+                        scale = 1.0
+                        opacity = 1.0
+                    }
+                }
+                
+                Spacer()
+                
+                // Spinner + preparing text
+                VStack(spacing: 12) {
+                    Circle()
+                        .trim(from: 0, to: 0.7)
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color(red: 0.83, green: 0.93, blue: 1.0), Color.clear],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                        )
+                        .frame(width: 32, height: 32)
+                        .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
+                        .onAppear {
+                            withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
+                                isAnimating = true
+                            }
+                        }
+                    
+                    Text("Preparing your experience...")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+                .opacity(opacity)
+                .padding(.bottom, 50)
             }
         }
     }
