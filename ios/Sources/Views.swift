@@ -946,10 +946,7 @@ struct TimedLyricsParser {
         var lines: [TimedLyricLine] = []
         let components = lyricsText.components(separatedBy: .newlines)
 
-        let pattern = "^\\[(\\d+):(\\d+)(?:\\.(\\d+))?\\].*$"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
-
-        let tsRegexPattern = "\\[(\\d+):(\\d+)(?:\\.(\\d+))?\\]"
+        let tsRegexPattern = "\\[(\\d+):(\\d+)(?::(\\d+))?(?:[.,](\\d+))?\\]"
         guard let tsRegex = try? NSRegularExpression(pattern: tsRegexPattern, options: []) else { return [] }
 
         for (sourceIndex, line) in components.enumerated() {
@@ -957,31 +954,52 @@ struct TimedLyricsParser {
             if trimmed.isEmpty { continue }
 
             let range = NSRange(location: 0, length: trimmed.utf16.count)
-            let matchResults = regex.matches(in: trimmed, options: [], range: range)
+            let tsMatches = tsRegex.matches(in: trimmed, options: [], range: range)
+            guard !tsMatches.isEmpty else { continue }
 
-            if !matchResults.isEmpty {
-                let tsMatches = tsRegex.matches(in: trimmed, options: [], range: range)
-                if tsMatches.isEmpty { continue }
+            let lastMatch = tsMatches.last!
+            let textStartIndex = lastMatch.range.location + lastMatch.range.length
+            let lyricText = (trimmed as NSString).substring(from: textStartIndex).trimmingCharacters(in: .whitespacesAndNewlines)
 
-                let lastMatch = tsMatches.last!
-                let textStartIndex = lastMatch.range.location + lastMatch.range.length
-                let lyricText = (trimmed as NSString).substring(from: textStartIndex).trimmingCharacters(in: .whitespacesAndNewlines)
-
-                for tsMatch in tsMatches {
-                    let minStr = (trimmed as NSString).substring(with: tsMatch.range(at: 1))
-                    let secStr = (trimmed as NSString).substring(with: tsMatch.range(at: 2))
-                    var msVal = 0.0
-                    if tsMatch.numberOfRanges > 3, tsMatch.range(at: 3).location != NSNotFound {
-                        let msStr = (trimmed as NSString).substring(with: tsMatch.range(at: 3))
-                        let paddedMs = msStr.padding(toLength: 3, withPad: "0", startingAt: 0)
-                        msVal = (Double(paddedMs) ?? 0.0) / 1000.0
+            for tsMatch in tsMatches {
+                let firstStr = (trimmed as NSString).substring(with: tsMatch.range(at: 1))
+                let secondStr = (trimmed as NSString).substring(with: tsMatch.range(at: 2))
+                
+                var thirdStr: String? = nil
+                if tsMatch.range(at: 3).location != NSNotFound {
+                    thirdStr = (trimmed as NSString).substring(with: tsMatch.range(at: 3))
+                }
+                
+                var fourthStr: String? = nil
+                if tsMatch.range(at: 4).location != NSNotFound {
+                    fourthStr = (trimmed as NSString).substring(with: tsMatch.range(at: 4))
+                }
+                
+                var totalSecs = 0.0
+                if let first = Double(firstStr), let second = Double(secondStr) {
+                    if let third = thirdStr.flatMap(Double.init) {
+                        let hours = first
+                        let minutes = second
+                        let seconds = third
+                        var msVal = 0.0
+                        if let fourth = fourthStr {
+                            let paddedMs = fourth.padding(toLength: 3, withPad: "0", startingAt: 0)
+                            msVal = (Double(paddedMs) ?? 0.0) / 1000.0
+                        }
+                        totalSecs = hours * 3600.0 + minutes * 60.0 + seconds + msVal
+                    } else {
+                        let minutes = first
+                        let seconds = second
+                        var msVal = 0.0
+                        if let fourth = fourthStr {
+                            let paddedMs = fourth.padding(toLength: 3, withPad: "0", startingAt: 0)
+                            msVal = (Double(paddedMs) ?? 0.0) / 1000.0
+                        }
+                        totalSecs = minutes * 60.0 + seconds + msVal
                     }
-
-                    if let mins = Double(minStr), let secs = Double(secStr) {
-                        let totalSecs = mins * 60.0 + secs + msVal
-                        let identity = "\(sourceIndex)-\(tsMatch.range.location)-\(totalSecs)"
-                        lines.append(TimedLyricLine(id: identity, time: totalSecs, text: lyricText))
-                    }
+                    
+                    let identity = "\(sourceIndex)-\(tsMatch.range.location)-\(totalSecs)"
+                    lines.append(TimedLyricLine(id: identity, time: totalSecs, text: lyricText))
                 }
             }
         }
