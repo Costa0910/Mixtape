@@ -2,6 +2,74 @@ import XCTest
 @testable import Snag
 
 final class RecommenderTests: XCTestCase {
+    func testPlaybackSettingsPersistAndKeepTransitionsMutuallyExclusive() async {
+        await MainActor.run {
+            let suite = "PlaybackSettingsTests.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+
+            // Older builds allowed both values to be stored. Preserve the
+            // behavior users heard (crossfade precedence) and repair the state.
+            defaults.set(true, forKey: "crossfadeEnabled")
+            defaults.set(true, forKey: "gaplessEnabled")
+            let settings = PlaybackSettings(defaults: defaults)
+
+            XCTAssertTrue(settings.crossfadeEnabled)
+            XCTAssertFalse(settings.gaplessEnabled)
+            XCTAssertFalse(defaults.bool(forKey: "gaplessEnabled"))
+
+            settings.setGaplessEnabled(true)
+            XCTAssertTrue(settings.gaplessEnabled)
+            XCTAssertFalse(settings.crossfadeEnabled)
+
+            settings.setCrossfadeEnabled(true)
+            settings.crossfadeSeconds = 8
+            settings.normalizationEnabled = false
+            settings.eqEnabled = true
+            settings.eqPreset = .rock
+            settings.setBand(0, 7)
+
+            let restored = PlaybackSettings(defaults: defaults)
+            XCTAssertTrue(restored.crossfadeEnabled)
+            XCTAssertFalse(restored.gaplessEnabled)
+            XCTAssertEqual(restored.crossfadeSeconds, 8)
+            XCTAssertFalse(restored.normalizationEnabled)
+            XCTAssertTrue(restored.eqEnabled)
+            XCTAssertEqual(restored.eqPreset, .custom)
+            XCTAssertEqual(restored.customGains[0], 7)
+
+            restored.restoreOriginalSound()
+            XCTAssertFalse(restored.eqEnabled)
+            XCTAssertEqual(restored.eqPreset, .flat)
+            XCTAssertEqual(restored.customGains, Array(repeating: 0, count: PlaybackSettings.bandCount))
+
+            let originalSound = PlaybackSettings(defaults: defaults)
+            XCTAssertFalse(originalSound.eqEnabled)
+            XCTAssertEqual(originalSound.eqPreset, .flat)
+            XCTAssertEqual(originalSound.customGains, Array(repeating: 0, count: PlaybackSettings.bandCount))
+        }
+    }
+
+    func testRecommendationSettingsReadPersistedValuesAndSanitizeDiscovery() {
+        let suite = "RecommendationSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        defaults.set(TasteMemory.longTerm.rawValue, forKey: RecommendationPreferences.memoryKey)
+        defaults.set(0.8, forKey: RecommendationPreferences.discoveryKey)
+        defaults.set(false, forKey: RecommendationPreferences.timelessFavoritesKey)
+        defaults.set(false, forKey: RecommendationPreferences.learnFromSkipsKey)
+
+        let preferences = RecommendationPreferences.current(defaults: defaults)
+        XCTAssertEqual(preferences.memory, .longTerm)
+        XCTAssertEqual(preferences.discovery, 0.8)
+        XCTAssertFalse(preferences.timelessFavorites)
+        XCTAssertFalse(preferences.learnFromSkips)
+
+        defaults.set(4.0, forKey: RecommendationPreferences.discoveryKey)
+        XCTAssertEqual(RecommendationPreferences.current(defaults: defaults).discovery, 1)
+    }
+
     func testArtworkStorageKeyUsesImageContent() {
         let first = Data([0x01, 0x02, 0x03])
         let same = Data([0x01, 0x02, 0x03])

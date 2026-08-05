@@ -9,40 +9,75 @@ struct OnboardingView: View {
     @State private var status = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            Image(systemName: "music.note.house.fill")
-                .font(.system(size: 68))
-                .foregroundStyle(.primary)
-            Text("Welcome to Snag")
-                .font(.largeTitle.bold()).tracking(-0.5).padding(.top, 20)
-            Text("Your music, all in one place. Snag can bring in the songs already on your iPhone — and sync more from your Mac over Wi‑Fi.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 36).padding(.top, 12)
+        ScrollView {
+            VStack(spacing: 32) {
+                VStack(spacing: 16) {
+                    BrandMark()
 
-            Spacer()
-
-            if importing {
-                ProgressView().padding(.bottom, 6)
-                Text(status).font(.callout).foregroundStyle(.secondary)
-            }
-
-            VStack(spacing: 12) {
-                Button { Task { await allowAndImport() } } label: {
-                    Text(importing ? "Importing…" : "Import my iPhone music")
-                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 16)
-                        .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
+                    VStack(spacing: 8) {
+                        Text("Your music. Your iPhone.")
+                            .font(.largeTitle.weight(.bold))
+                            .tracking(-0.7)
+                            .multilineTextAlignment(.center)
+                        Text("Listen offline, build playlists, and sync your collection directly from your Mac.")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
-                .buttonStyle(Pressable()).disabled(importing)
 
-                Button("Not now") { Haptics.light(); done = true }
-                    .foregroundStyle(.secondary).disabled(importing)
+                VStack(spacing: 0) {
+                    onboardingRow("Import what you already own", symbol: "music.note")
+                    Divider().padding(.leading, 52)
+                    onboardingRow("Sync privately over Wi-Fi", symbol: "wifi")
+                    Divider().padding(.leading, 52)
+                    onboardingRow("No account, ads, or analytics", symbol: "hand.raised.fill")
+                }
+                .groupedSurface()
+
+                VStack(spacing: 12) {
+                    if importing {
+                        ProgressView(status)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    Button { Task { await allowAndImport() } } label: {
+                        Label(importing ? "Importing…" : "Import iPhone music",
+                              systemImage: importing ? "arrow.down.circle" : "music.note.list")
+                    }
+                    .buttonStyle(PrimaryActionButtonStyle())
+                    .disabled(importing)
+
+                    Button("Set up later") { Haptics.light(); done = true }
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .frame(minHeight: 44)
+                        .disabled(importing)
+                }
             }
-            .padding(.horizontal, 28).padding(.bottom, 28)
+            .padding(.horizontal, 24)
+            .padding(.top, 48)
+            .padding(.bottom, 24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+        .scrollBounceBehavior(.basedOnSize)
+        .appScreenBackground()
+    }
+
+    private func onboardingRow(_ title: String, symbol: String) -> some View {
+        Label {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+        } icon: {
+            Image(systemName: symbol)
+                .foregroundStyle(AppTheme.accent)
+                .frame(width: 28)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
     }
 
     private func allowAndImport() async {
@@ -88,7 +123,7 @@ struct ImportDeviceMusicButton: View {
         guard ok else { status = "Access denied — enable it in Settings › Snag."; importing = false; return }
         let n = await MediaLibrary.importAll(into: ctx) { i, total in status = "Importing \(i) of \(total)…" }
         if n > 0 { Haptics.success() }
-        status = n > 0 ? "Added \(n) new songs 🎉" : "Nothing new to import."
+        status = n > 0 ? "Added \(n) new songs" : "Nothing new to import"
         importing = false
     }
 }

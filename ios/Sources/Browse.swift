@@ -74,6 +74,7 @@ struct AllSongsView: View {
                 }
             }
         }
+        .appScreenBackground()
         .navigationTitle("Songs").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             HStack {
@@ -134,6 +135,7 @@ struct ArtistsView: View {
                 }
             }
         }
+        .appScreenBackground()
         .navigationTitle("Artists").navigationBarTitleDisplayMode(.inline)
         .toolbar { CollectionLayoutPicker(selection: $layout) }
     }
@@ -167,17 +169,14 @@ struct ArtistDetailView: View {
                 HStack(spacing: 12) {
                     Button { player.shuffle = false; player.play(artist.tracks, startAt: 0); Haptics.rigid() } label: {
                         Label("Play", systemImage: "play.fill")
-                            .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
-                    }.buttonStyle(Pressable())
+                    }.buttonStyle(PrimaryActionButtonStyle())
                     Button { player.playShuffled(artist.tracks); Haptics.rigid() } label: {
                         Label("Shuffle", systemImage: "shuffle")
-                            .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(.ultraThinMaterial, in: Capsule())
-                    }.buttonStyle(Pressable())
+                    }.buttonStyle(SecondaryActionButtonStyle())
                 }
+                .groupedGlassEffects()
 
-                Text("Albums").font(.title3.bold()).tracking(-0.2)
+                SectionTitle(title: "Albums")
                 LazyVGrid(columns: cols, spacing: 18) {
                     ForEach(albums) { album in
                         NavigationLink { AlbumDetailView(album: album) } label: { AlbumTile(album: album) }
@@ -189,6 +188,7 @@ struct ArtistDetailView: View {
             .padding(.top, AppLayout.pageInset)
             .padding(.bottom, AppLayout.scrollEndPadding)
         }
+        .appScreenBackground()
         .navigationTitle(artist.name).navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -234,6 +234,7 @@ struct GenresView: View {
                 }
             }
         }
+        .appScreenBackground()
         .navigationTitle("Genres").navigationBarTitleDisplayMode(.inline)
         .toolbar { CollectionLayoutPicker(selection: $layout) }
     }
@@ -290,6 +291,7 @@ struct GenreDetailView: View {
                 }
             }
         }
+        .appScreenBackground()
         .navigationTitle(genre.name).navigationBarTitleDisplayMode(.inline)
         .toolbar { CollectionLayoutPicker(selection: $layout) }
     }
@@ -298,15 +300,12 @@ struct GenreDetailView: View {
         HStack(spacing: 12) {
             Button { player.shuffle = false; player.play(genre.tracks, startAt: 0); Haptics.rigid() } label: {
                 Label("Play", systemImage: "play.fill")
-                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                    .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
-            }.buttonStyle(Pressable())
+            }.buttonStyle(PrimaryActionButtonStyle())
             Button { player.playShuffled(genre.tracks); Haptics.rigid() } label: {
                 Label("Shuffle", systemImage: "shuffle")
-                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                    .background(.ultraThinMaterial, in: Capsule())
-            }.buttonStyle(Pressable())
+            }.buttonStyle(SecondaryActionButtonStyle())
         }
+        .groupedGlassEffects()
         .listRowSeparator(.hidden)
     }
 }
@@ -333,19 +332,19 @@ struct SystemVolumeControl: View {
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             Image(systemName: "speaker.fill")
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 16, height: 32, alignment: .center)
+                .font(.caption.weight(.medium))
+                .frame(width: 16, height: 44, alignment: .center)
                 .accessibilityHidden(true)
             SystemVolumeSlider()
                 .frame(maxWidth: .infinity)
-                .frame(height: 32, alignment: .center)
+                .frame(height: 44, alignment: .center)
                 .accessibilityLabel("Volume")
             Image(systemName: "speaker.wave.3.fill")
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 16, height: 32, alignment: .center)
+                .font(.caption.weight(.medium))
+                .frame(width: 16, height: 44, alignment: .center)
                 .accessibilityHidden(true)
         }
-        .frame(height: 32, alignment: .center)
+        .frame(height: 44, alignment: .center)
         .foregroundStyle(.secondary)
     }
 }
@@ -378,6 +377,10 @@ private final class StyledVolumeView: MPVolumeView {
         slider.minimumTrackTintColor = .label
         slider.maximumTrackTintColor = .tertiaryLabel
         slider.tintColor = .label
+        // AirPlay has a dedicated AVRoutePickerView in the player chrome.
+        // Keep MPVolumeView focused on volume without using its deprecated
+        // route-button configuration API.
+        subviews.compactMap { $0 as? UIButton }.forEach { $0.isHidden = true }
     }
 }
 
@@ -385,8 +388,6 @@ private struct DeviceSystemVolumeSlider: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
         let view = StyledVolumeView(frame: .zero)
         view.showsVolumeSlider = true
-        // Routing has its own AVRoutePickerView directly below the player.
-        view.showsRouteButton = false
         return view
     }
 

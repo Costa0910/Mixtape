@@ -101,10 +101,21 @@ struct ImportButton: View {
     }
 }
 
+private struct InsightsReloadID: Hashable {
+    let trackCount: Int
+    let memory: String
+    let discovery: Double
+    let timelessFavorites: Bool
+    let learnFromSkips: Bool
+}
+
 struct ListenNowView: View {
-    @Environment(\.colorScheme) private var colorScheme
     private let player = PlayerEngine.shared
     @Query private var tracks: [Track]
+    @AppStorage(RecommendationPreferences.memoryKey) private var memoryRaw = TasteMemory.balanced.rawValue
+    @AppStorage(RecommendationPreferences.discoveryKey) private var discovery = 0.45
+    @AppStorage(RecommendationPreferences.timelessFavoritesKey) private var timelessFavorites = true
+    @AppStorage(RecommendationPreferences.learnFromSkipsKey) private var learnFromSkips = true
 
     @State private var forYou: [Recommender.Mix] = []
     @State private var loved: [Track] = []
@@ -140,19 +151,16 @@ struct ListenNowView: View {
                     .padding(.bottom, AppLayout.scrollEndPadding)
                 }
                 .refreshable { await reloadInsights() }
+                .appScreenBackground()
             }
         }
         .navigationTitle("Listen Now")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color(uiColor: .systemBackground), for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(colorScheme, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.large)
+        .appScreenBackground()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
-            }
-            ToolbarItem(placement: .principal) {
-                Text("Listen Now").font(.headline).foregroundStyle(.primary)
+                    .accessibilityLabel("Settings")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink { SearchView() } label: { Image(systemName: "magnifyingglass") }
@@ -164,7 +172,11 @@ struct ListenNowView: View {
         // Listening-stat saves do not need to rebuild every recommendation.
         // Imports/deletions change the count; pull-to-refresh explicitly reloads
         // updated listening data from SwiftData.
-        .task(id: tracks.count) {
+        .task(id: InsightsReloadID(trackCount: tracks.count,
+                                   memory: memoryRaw,
+                                   discovery: discovery,
+                                   timelessFavorites: timelessFavorites,
+                                   learnFromSkips: learnFromSkips)) {
             await reloadInsights()
         }
     }
@@ -187,24 +199,28 @@ struct ListenNowView: View {
         Button {
             player.playSmart(tracks); Haptics.rigid()
         } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "sparkles").font(.title2)
+            HStack(spacing: 16) {
+                Image(systemName: "sparkles")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(AppTheme.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Smart Mix").font(.headline)
                     Text("Tuned to what you love").font(.caption).opacity(0.85)
                 }
                 Spacer()
-                Image(systemName: "play.circle.fill").font(.title)
+                Image(systemName: "play.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(AppTheme.accent)
             }
             .foregroundStyle(.primary)
-            .padding(.horizontal, 18).padding(.vertical, 16)
-            .balancedGlassCard()
+            .padding(16)
+            .groupedSurface()
         }.buttonStyle(Pressable(scale: 0.97))
     }
 
     private var forYouSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("For You").font(.title3.bold()).tracking(-0.2)
+            SectionTitle(title: "For You")
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
                     ForEach(forYou) { mix in
@@ -254,17 +270,21 @@ struct LibraryView: View {
 
                         if recentlyAdded.count >= 4 { TrackShelf(title: "Recently Added", tracks: recentlyAdded) }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, AppLayout.pageInset)
                     .padding(.top, 4)
                     .padding(.bottom, AppLayout.scrollEndPadding)
                 }
                 .refreshable { await reloadLibrary() }
+                .appScreenBackground()
             }
         }
         .navigationTitle("Library")
+        .navigationBarTitleDisplayMode(.large)
+        .appScreenBackground()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                    .accessibilityLabel("Settings")
             }
             ToolbarItem(placement: .topBarTrailing) { ImportButton() }
         }
@@ -290,23 +310,19 @@ struct LibraryView: View {
                 player.shuffle = false; player.play(tracks, startAt: 0); Haptics.rigid()
             } label: {
                 Label("Play", systemImage: "play.fill")
-                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 13)
-                    .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
-            }.buttonStyle(Pressable())
+            }.buttonStyle(PrimaryActionButtonStyle())
             Button {
                 shuffleAll(); Haptics.rigid()
             } label: {
                 Label("Shuffle", systemImage: "shuffle")
-                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 13)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .foregroundStyle(.primary)
-            }.buttonStyle(Pressable())
+            }.buttonStyle(SecondaryActionButtonStyle())
         }
+        .groupedGlassEffects()
     }
 
     private var browseSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Browse").font(.title3.bold()).tracking(-0.2)
+            SectionTitle(title: "Browse")
             VStack(spacing: 0) {
                 NavigationLink { AllSongsView() } label: { BrowseRow(icon: "music.note", title: "Songs", count: tracks.count) }
                 Divider().padding(.leading, 56)
@@ -316,9 +332,9 @@ struct LibraryView: View {
                 Divider().padding(.leading, 56)
                 NavigationLink { GenresView() } label: { BrowseRow(icon: "guitars", title: "Genres", count: genreCount) }
             }
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .groupedSurface()
 
-            Text("Your Listening").font(.title3.bold()).tracking(-0.2).padding(.top, 8)
+            SectionTitle(title: "Your Listening").padding(.top, 8)
             VStack(spacing: 0) {
                 NavigationLink {
                     ListeningCollectionDetailView(kind: .favorites)
@@ -344,7 +360,7 @@ struct LibraryView: View {
                               count: mostPlayed.count)
                 }
             }
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .groupedSurface()
         }
         .buttonStyle(.plain)
     }
@@ -371,7 +387,7 @@ struct TrackShelf: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.title3.bold()).tracking(-0.2)
+            SectionTitle(title: title)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
                     ForEach(Array(tracks.enumerated()), id: \.element.id) { pair in
@@ -444,6 +460,7 @@ struct MixDetailView: View {
         Group {
             if layout == .list { mixList } else { mixGrid }
         }
+        .appScreenBackground()
         .navigationTitle(mix.name).navigationBarTitleDisplayMode(.inline)
         .toolbar { CollectionLayoutPicker(selection: $layout) }
     }
@@ -492,15 +509,12 @@ struct MixDetailView: View {
             HStack(spacing: 12) {
                 Button { player.shuffle = false; player.play(mix.tracks, startAt: 0); Haptics.rigid() } label: {
                     Label("Play", systemImage: "play.fill")
-                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                        .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
-                }.buttonStyle(Pressable())
+                }.buttonStyle(PrimaryActionButtonStyle())
                 Button { player.playShuffled(mix.tracks); Haptics.rigid() } label: {
                     Label("Shuffle", systemImage: "shuffle")
-                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                        .background(.ultraThinMaterial, in: Capsule())
-                }.buttonStyle(Pressable())
+                }.buttonStyle(SecondaryActionButtonStyle())
             }
+            .groupedGlassEffects()
         }
     }
 }
@@ -544,6 +558,7 @@ struct AllAlbumsView: View {
                 .listStyle(.plain)
             }
         }
+        .appScreenBackground()
         .navigationTitle("Albums")
         .toolbar { CollectionLayoutPicker(selection: $layout) }
         .onChange(of: tracks, initial: true) { _, newTracks in
@@ -587,15 +602,13 @@ struct AlbumDetailView: View {
                 HStack(spacing: 12) {
                     Button { player.shuffle = false; player.play(album.tracks, startAt: 0); Haptics.rigid() } label: {
                         Label("Play", systemImage: "play.fill")
-                            .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
-                    }.buttonStyle(Pressable())
+                    }.buttonStyle(PrimaryActionButtonStyle())
                     Button { player.playShuffled(album.tracks); Haptics.rigid() } label: {
                         Label("Shuffle", systemImage: "shuffle")
-                            .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(.ultraThinMaterial, in: Capsule())
-                    }.buttonStyle(Pressable())
-                }.padding(.horizontal, 4)
+                    }.buttonStyle(SecondaryActionButtonStyle())
+                }
+                .groupedGlassEffects()
+                .padding(.horizontal, 4)
 
                 if layout == .list {
                     VStack(spacing: 0) {
@@ -620,6 +633,7 @@ struct AlbumDetailView: View {
             .padding(.horizontal)
             .padding(.bottom, AppLayout.scrollEndPadding)
         }
+        .appScreenBackground()
         .navigationTitle(album.name).navigationBarTitleDisplayMode(.inline)
         .toolbar { CollectionLayoutPicker(selection: $layout) }
     }
@@ -676,21 +690,18 @@ struct ListeningCollectionDetailView: View {
                                 player.play(tracks, startAt: 0)
                             } label: {
                                 Label("Play", systemImage: "play.fill")
-                                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                                    .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
                             }
-                            .buttonStyle(Pressable())
+                            .buttonStyle(PrimaryActionButtonStyle())
 
                             Button {
                                 Haptics.rigid()
                                 player.playShuffled(tracks)
                             } label: {
                                 Label("Shuffle", systemImage: "shuffle")
-                                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                                    .background(.ultraThinMaterial, in: Capsule())
                             }
-                            .buttonStyle(Pressable())
+                            .buttonStyle(SecondaryActionButtonStyle())
                         }
+                        .groupedGlassEffects()
                         .padding(.horizontal, 4)
 
                         if layout == .list {
@@ -721,6 +732,7 @@ struct ListeningCollectionDetailView: View {
                 }
             }
         }
+        .appScreenBackground()
         .navigationTitle(kind.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -797,6 +809,7 @@ struct SearchView: View {
                 }.listStyle(.plain)
             }
         }
+        .appScreenBackground()
         .searchable(text: $q, prompt: "Songs, artists, albums")
         .navigationTitle("Search")
         .toolbar {
@@ -854,8 +867,8 @@ struct SyncView: View {
                     }
                 }
                 .disabled(client.busy || host.isEmpty || pin.isEmpty)
-                .listRowBackground(host.isEmpty || pin.isEmpty ? Color.gray.opacity(0.3) : Color.indigo)
-                .foregroundStyle(.white)
+                .listRowBackground(host.isEmpty || pin.isEmpty ? Color(uiColor: .tertiarySystemFill) : AppTheme.accent)
+                .foregroundStyle(host.isEmpty || pin.isEmpty ? Color.secondary : Color.white)
 
                 if client.busy {
                     ProgressView(value: client.progress).tint(.indigo)
@@ -873,6 +886,8 @@ struct SyncView: View {
             }
         }
         .navigationTitle("Sync")
+        .navigationBarTitleDisplayMode(.large)
+        .appScreenBackground()
         .onAppear { browser.start() }
         .onDisappear { browser.stop() }
     }
@@ -901,15 +916,20 @@ struct MiniPlayer: View {
                 Button { player.playPause(); Haptics.soft() } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.body.weight(.semibold))
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
                         .background(Color.primary.opacity(0.08), in: Circle())
                         .contentTransition(.symbolEffect(.replace))
-                }.buttonStyle(Pressable(scale: 0.85))
+                }
+                .buttonStyle(Pressable(scale: 0.85))
+                .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
                 Button { player.next(userInitiated: true); Haptics.soft() } label: {
                     Image(systemName: "forward.fill")
                         .font(.subheadline.weight(.semibold))
-                        .frame(width: 30, height: 36)
-                }.buttonStyle(Pressable(scale: 0.85))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(Pressable(scale: 0.85))
+                .accessibilityLabel("Next")
             }
             .foregroundStyle(.primary)
             MiniPlayerProgress()
@@ -1028,7 +1048,7 @@ private struct TimedLyricsView: View {
                     ForEach(lines) { line in
                         let isActive = line.id == activeLyricId
                         Text(line.text)
-                            .font(.system(size: 26, weight: .bold))
+                            .font(.title2.weight(.bold))
                             .foregroundStyle(isActive ? Color.primary : Color.secondary)
                             .scaleEffect(isActive ? 1.02 : 1.0)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1131,7 +1151,7 @@ struct NowPlayingView: View {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.down")
                     .font(.body.weight(.semibold))
-                    .frame(width: 42, height: 42)
+                    .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
             .buttonStyle(Pressable(scale: 0.88))
@@ -1159,7 +1179,7 @@ struct NowPlayingView: View {
                 Image(systemName: "list.bullet")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(surface == .queue ? Color.indigo : Color.primary)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
             .buttonStyle(Pressable(scale: 0.88))
@@ -1184,7 +1204,7 @@ struct NowPlayingView: View {
             if timedLyrics.isEmpty {
                 ScrollView(showsIndicators: false) {
                     Text(player.current?.lyrics ?? "")
-                        .font(.system(size: 24, weight: .semibold))
+                        .font(.title2.weight(.semibold))
                         .foregroundStyle(.primary.opacity(0.9))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 28)
@@ -1274,7 +1294,8 @@ struct NowPlayingView: View {
                     .font(.title3)
                     .foregroundStyle((player.current?.loved ?? false) ? Color.pink : Color.secondary)
                     .symbolEffect(.bounce, value: player.current?.loved)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(Pressable(scale: 0.82))
             .accessibilityLabel((player.current?.loved ?? false) ? "Remove from favorites" : "Add to favorites")
@@ -1303,7 +1324,7 @@ struct NowPlayingView: View {
             Image(systemName: "ellipsis")
                 .font(.body.weight(.bold))
                 .foregroundStyle(.secondary)
-                .frame(width: 42, height: 42)
+                .frame(width: 44, height: 44)
                 .contentShape(Circle())
         }
         .buttonStyle(Pressable(scale: 0.82))
@@ -1316,6 +1337,7 @@ struct NowPlayingView: View {
                 Image(systemName: "backward.fill")
                     .font(.system(size: 25, weight: .semibold))
                     .frame(width: 58, height: 58)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(Pressable(scale: 0.86))
             .accessibilityLabel("Previous")
@@ -1339,6 +1361,7 @@ struct NowPlayingView: View {
                 Image(systemName: "forward.fill")
                     .font(.system(size: 25, weight: .semibold))
                     .frame(width: 58, height: 58)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(Pressable(scale: 0.86))
             .accessibilityLabel("Next")
@@ -1355,7 +1378,8 @@ struct NowPlayingView: View {
             } label: {
                 Image(systemName: "quote.bubble")
                     .foregroundStyle(surface == .lyrics ? Color.indigo : Color.secondary)
-                    .frame(width: 40, height: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(Pressable(scale: 0.8))
             .disabled(player.current?.lyrics?.isEmpty != false)
@@ -1368,7 +1392,8 @@ struct NowPlayingView: View {
             Button { Haptics.select(); player.toggleShuffle() } label: {
                 Image(systemName: "shuffle")
                     .foregroundStyle(player.shuffle ? Color.indigo : Color.secondary)
-                    .frame(width: 40, height: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(Pressable(scale: 0.8))
             .accessibilityLabel("Shuffle")
@@ -1379,7 +1404,8 @@ struct NowPlayingView: View {
             Button { Haptics.select(); player.autoplay.toggle() } label: {
                 Image(systemName: "infinity")
                     .foregroundStyle(player.autoplay ? Color.indigo : Color.secondary)
-                    .frame(width: 40, height: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(Pressable(scale: 0.8))
             .accessibilityLabel("Autoplay")
@@ -1394,7 +1420,8 @@ struct NowPlayingView: View {
             Button { Haptics.select(); player.cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
                     .foregroundStyle(player.repeatMode == .off ? Color.secondary : Color.indigo)
-                    .frame(width: 40, height: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(Pressable(scale: 0.8))
             .accessibilityLabel("Repeat")
@@ -1403,7 +1430,7 @@ struct NowPlayingView: View {
             Spacer()
 
             AirPlayButton(tint: .secondaryLabel)
-                .frame(width: 40, height: 36)
+                .frame(width: 44, height: 44)
                 .accessibilityLabel("AirPlay")
         }
         .font(.title3)
@@ -1439,15 +1466,15 @@ struct NowPlayingView: View {
                     .foregroundStyle((player.sleepTimerRemaining != nil || player.sleepTimerEndBlock) ? Color.indigo : Color.secondary)
                 if let remaining = player.sleepTimerRemaining {
                     Text(String(format: "%d:%02d", Int(remaining) / 60, Int(remaining) % 60))
-                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                        .font(.caption2.weight(.semibold).monospacedDigit())
                         .foregroundStyle(Color.indigo)
                 } else if player.sleepTimerEndBlock {
                     Text("End")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.caption2.weight(.bold))
                         .foregroundStyle(Color.indigo)
                 }
             }
-            .frame(width: 40, height: 36)
+            .frame(width: 44, height: 44)
         }
         .accessibilityLabel("Sleep timer")
     }
@@ -1528,6 +1555,14 @@ struct Scrubber: View {
                 Text("-" + timeStr(max(0, clock.duration - (dragFrac ?? clock.progress) * clock.duration)))
             }
             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playback position")
+        .accessibilityValue("\(timeStr(clock.elapsed)) of \(timeStr(clock.duration))")
+        .accessibilityAdjustableAction { direction in
+            let delta = direction == .increment ? 15.0 : -15.0
+            player.seek(toTime: min(max(clock.elapsed + delta, 0), clock.duration))
+            Haptics.select()
         }
     }
 

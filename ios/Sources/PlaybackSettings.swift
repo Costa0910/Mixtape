@@ -31,6 +31,12 @@ enum EQPreset: String, CaseIterable, Identifiable {
     }
 }
 
+private enum PlaybackTransitionMode {
+    case none
+    case gapless
+    case crossfade
+}
+
 // Persisted playback preferences read by the audio engine and edited in Settings.
 @MainActor
 final class PlaybackSettings: ObservableObject {
@@ -39,16 +45,68 @@ final class PlaybackSettings: ObservableObject {
     static let bandCount = 10
     static let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
-    @Published var crossfadeEnabled: Bool { didSet { d.set(crossfadeEnabled, forKey: K.crossfadeOn) } }
-    @Published var crossfadeSeconds: Double { didSet { d.set(crossfadeSeconds, forKey: K.crossfadeSecs) } }
-    @Published var gaplessEnabled: Bool { didSet { d.set(gaplessEnabled, forKey: K.gaplessOn) } }
-    @Published var normalizationEnabled: Bool { didSet { d.set(normalizationEnabled, forKey: K.normalizationOn) } }
-    @Published var eqEnabled: Bool { didSet { d.set(eqEnabled, forKey: K.eqOn) } }
-    @Published var eqPreset: EQPreset { didSet { d.set(eqPreset.rawValue, forKey: K.eqPreset) } }
-    @Published var customGains: [Float] { didSet { d.set(customGains.map { Double($0) }, forKey: K.eqGains) } }
+    @Published private var transitionMode: PlaybackTransitionMode {
+        didSet {
+            d.set(transitionMode == .crossfade, forKey: K.crossfadeOn)
+            d.set(transitionMode == .gapless, forKey: K.gaplessOn)
+            audioSettingsDidChange.send()
+        }
+    }
+    @Published var crossfadeSeconds: Double {
+        didSet {
+            d.set(crossfadeSeconds, forKey: K.crossfadeSecs)
+            audioSettingsDidChange.send()
+        }
+    }
+    @Published var normalizationEnabled: Bool {
+        didSet {
+            d.set(normalizationEnabled, forKey: K.normalizationOn)
+            audioSettingsDidChange.send()
+        }
+    }
+    @Published var eqEnabled: Bool {
+        didSet {
+            d.set(eqEnabled, forKey: K.eqOn)
+            audioSettingsDidChange.send()
+        }
+    }
+    @Published var eqPreset: EQPreset {
+        didSet {
+            d.set(eqPreset.rawValue, forKey: K.eqPreset)
+            audioSettingsDidChange.send()
+        }
+    }
+    @Published var customGains: [Float] {
+        didSet {
+            d.set(customGains.map { Double($0) }, forKey: K.eqGains)
+            audioSettingsDidChange.send()
+        }
+    }
+
+    /// Emits after a preference has changed, so the audio graph always reads
+    /// the new value rather than racing ObservableObject's pre-change signal.
+    let audioSettingsDidChange = PassthroughSubject<Void, Never>()
 
     /// The gains actually applied (preset gains, or the custom curve).
     var effectiveGains: [Float] { eqPreset == .custom ? customGains : eqPreset.gains }
+    var crossfadeEnabled: Bool { transitionMode == .crossfade }
+    var gaplessEnabled: Bool { transitionMode == .gapless }
+
+    func setCrossfadeEnabled(_ enabled: Bool) {
+        transitionMode = enabled ? .crossfade : .none
+    }
+
+    func setGaplessEnabled(_ enabled: Bool) {
+        transitionMode = enabled ? .gapless : .none
+    }
+
+    /// Removes all equalizer processing and clears the saved custom curve.
+    /// This returns playback to the sound encoded in the original track.
+    func restoreOriginalSound() {
+        customGains = Array(repeating: 0, count: Self.bandCount)
+        eqPreset = .flat
+        eqEnabled = false
+    }
 
     /// Edit one band — switches to the Custom preset, seeding from the current curve.
     func setBand(_ index: Int, _ value: Float) {
@@ -60,7 +118,7 @@ final class PlaybackSettings: ObservableObject {
         eqPreset = .custom
     }
 
-    private let d = UserDefaults.standard
+    private let d: UserDefaults
     private enum K {
         static let crossfadeOn = "crossfadeEnabled"
         static let crossfadeSecs = "crossfadeSeconds"
@@ -71,14 +129,25 @@ final class PlaybackSettings: ObservableObject {
         static let eqGains = "eqGains"
     }
 
-    private init() {
-        crossfadeEnabled = d.bool(forKey: K.crossfadeOn)
-        crossfadeSeconds = d.object(forKey: K.crossfadeSecs) as? Double ?? 4.0
-        gaplessEnabled = d.object(forKey: K.gaplessOn) as? Bool ?? true
+    init(defaults: UserDefaults = .standard) {
+        d = defaults
+        let storedCrossfade = defaults.bool(forKey: K.crossfadeOn)
+        let storedGapless = defaults.object(forKey: K.gaplessOn) as? Bool ?? true
+        transitionMode = storedCrossfade ? .crossfade : (storedGapless ? .gapless : .none)
+        let storedDuration = defaults.object(forKey: K.crossfadeSecs) as? Double ?? 4.0
+        crossfadeSeconds = storedDuration.isFinite ? min(max(storedDuration, 1), 12) : 4.0
+        // Crossfade has always taken precedence in the engine. Normalize legacy
+        // installs that may have persisted both toggles as enabled.
         normalizationEnabled = d.object(forKey: K.normalizationOn) as? Bool ?? true
         eqEnabled = d.bool(forKey: K.eqOn)
         eqPreset = EQPreset(rawValue: d.string(forKey: K.eqPreset) ?? "") ?? .flat
         let stored = (d.array(forKey: K.eqGains) as? [Double])?.map { Float($0) }
-        customGains = (stored?.count == Self.bandCount) ? stored! : Array(repeating: 0, count: Self.bandCount)
+        customGains = stored?.count == Self.bandCount
+            ? stored!.map { min(max($0, -12), 12) }
+            : Array(repeating: 0, count: Self.bandCount)
+
+        d.set(crossfadeSeconds, forKey: K.crossfadeSecs)
+        d.set(transitionMode == .crossfade, forKey: K.crossfadeOn)
+        d.set(transitionMode == .gapless, forKey: K.gaplessOn)
     }
 }

@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 enum AppLayout {
-    static let pageInset: CGFloat = 16
+    static let pageInset: CGFloat = 20
     /// The integrated dock is about 132 pt while the mini-player is present.
     /// Scroll containers
     /// do not reliably inherit that custom inset, so reserve it explicitly plus
@@ -10,6 +10,23 @@ enum AppLayout {
     static let scrollEndPadding: CGFloat = 148
     static let dockSpacing: CGFloat = 8
     static let dockBottomPadding: CGFloat = 4
+}
+
+enum AppTheme {
+    static let accent = Color.indigo
+    static let cardRadius: CGFloat = 16
+    static let compactRadius: CGFloat = 12
+    static let controlHeight: CGFloat = 50
+
+    static let screenBackground = Color(uiColor: .systemGroupedBackground)
+    static let surface = Color(uiColor: .secondarySystemGroupedBackground)
+    static let elevatedSurface = Color(uiColor: .tertiarySystemGroupedBackground)
+    static let separator = Color(uiColor: .separator)
+
+    static func glassTint(for colorScheme: ColorScheme) -> Color {
+        Color(uiColor: .systemBackground)
+            .opacity(colorScheme == .dark ? 0.30 : 0.20)
+    }
 }
 
 // MARK: - Haptics (reserved for meaningful moments — §13 utility)
@@ -36,10 +53,133 @@ extension Animation {
 /// Press feedback on pointer-down, springs back on release (§1, §3).
 struct Pressable: ButtonStyle {
     var scale: CGFloat = 0.96
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? scale : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? scale : 1)
+            .opacity(configuration.isPressed ? 0.82 : 1)
             .animation(.snappy, value: configuration.isPressed)
+    }
+}
+
+struct PrimaryActionButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
+
+    @ViewBuilder
+    func makeBody(configuration: Configuration) -> some View {
+        if #available(iOS 26.0, *) {
+            configuration.label
+                .font(.body.weight(.semibold))
+                .foregroundStyle(isEnabled ? Color.white : Color.secondary)
+                .frame(maxWidth: .infinity, minHeight: AppTheme.controlHeight)
+                .background(
+                    isEnabled
+                        ? AppTheme.accent.opacity(colorScheme == .dark ? 0.30 : 0.42)
+                        : Color(uiColor: .tertiarySystemFill).opacity(0.55),
+                    in: RoundedRectangle(cornerRadius: AppTheme.compactRadius, style: .continuous)
+                )
+                .glassEffect(
+                    .regular
+                        .tint(isEnabled ? AppTheme.accent.opacity(0.72) : AppTheme.glassTint(for: colorScheme))
+                        .interactive(isEnabled),
+                    in: .rect(cornerRadius: AppTheme.compactRadius)
+                )
+                .opacity(configuration.isPressed ? 0.88 : 1)
+        } else {
+            configuration.label
+                .font(.body.weight(.semibold))
+                .foregroundStyle(isEnabled ? Color.white : Color.secondary)
+                .frame(maxWidth: .infinity, minHeight: AppTheme.controlHeight)
+                .background(
+                    isEnabled
+                        ? (configuration.isPressed ? AppTheme.accent.opacity(0.78) : AppTheme.accent)
+                        : Color(uiColor: .tertiarySystemFill),
+                    in: RoundedRectangle(cornerRadius: AppTheme.compactRadius, style: .continuous)
+                )
+                .opacity(configuration.isPressed ? 0.9 : 1)
+        }
+    }
+}
+
+struct SecondaryActionButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
+
+    @ViewBuilder
+    func makeBody(configuration: Configuration) -> some View {
+        if #available(iOS 26.0, *) {
+            configuration.label
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, minHeight: AppTheme.controlHeight)
+                .background(
+                    AppTheme.glassTint(for: colorScheme).opacity(0.55),
+                    in: RoundedRectangle(cornerRadius: AppTheme.compactRadius, style: .continuous)
+                )
+                .glassEffect(
+                    .regular
+                        .tint(AppTheme.glassTint(for: colorScheme))
+                        .interactive(isEnabled),
+                    in: .rect(cornerRadius: AppTheme.compactRadius)
+                )
+                .opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1) : 0.45)
+        } else {
+            configuration.label
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, minHeight: AppTheme.controlHeight)
+                .background(
+                    configuration.isPressed ? AppTheme.elevatedSurface : AppTheme.surface,
+                    in: RoundedRectangle(cornerRadius: AppTheme.compactRadius, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: AppTheme.compactRadius, style: .continuous)
+                        .stroke(AppTheme.separator.opacity(0.45), lineWidth: 0.5)
+                }
+                .opacity(isEnabled ? 1 : 0.45)
+        }
+    }
+}
+
+struct SectionTitle: View {
+    let title: String
+    var action: String? = nil
+    var actionHandler: (() -> Void)? = nil
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .tracking(-0.2)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            if let action, let actionHandler {
+                Button(action, action: actionHandler)
+                    .font(.subheadline.weight(.medium))
+                    .frame(minHeight: 44)
+            }
+        }
+    }
+}
+
+struct BrandMark: View {
+    var size: CGFloat = 96
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
+                .fill(Color(uiColor: UIColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1)))
+            Image("SnagLogo")
+                .resizable()
+                .scaledToFit()
+                .scaleEffect(1.5)
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.23, style: .continuous))
+        .shadow(color: .black.opacity(0.16), radius: size * 0.16, y: size * 0.07)
+        .accessibilityHidden(true)
     }
 }
 
@@ -87,14 +227,25 @@ struct AmbientBackground: View {
 
 /// Neutral Liquid Glass with enough density to remain legible over artwork.
 private struct BalancedGlassCard: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
+            content
+                .background(
+                    AppTheme.glassTint(for: colorScheme).opacity(0.48),
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+                .glassEffect(
+                    .regular.tint(AppTheme.glassTint(for: colorScheme)),
+                    in: .rect(cornerRadius: cornerRadius)
+                )
         } else {
             content
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(.primary.opacity(0.12), lineWidth: 0.5))
         }
     }
@@ -102,7 +253,7 @@ private struct BalancedGlassCard: ViewModifier {
 
 extension View {
     func balancedGlassCard() -> some View {
-        modifier(BalancedGlassCard())
+        modifier(BalancedGlassCard(cornerRadius: 18))
     }
 
     /// A quiet, non-reactive glass surface for dense playback controls. The
@@ -111,7 +262,12 @@ extension View {
     @ViewBuilder
     func playerControlSurface(cornerRadius: CGFloat = 30) -> some View {
         if #available(iOS 26.0, *) {
-            self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+            self
+                .background(
+                    Color(uiColor: .systemBackground).opacity(0.22),
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+                .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
         } else {
             self
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -120,5 +276,69 @@ extension View {
                         .stroke(.primary.opacity(0.12), lineWidth: 0.5)
                 )
         }
+    }
+
+
+    @ViewBuilder
+    func groupedSurface(cornerRadius: CGFloat = AppTheme.cardRadius) -> some View {
+        if #available(iOS 26.0, *) {
+            modifier(BalancedGlassCard(cornerRadius: cornerRadius))
+        } else {
+            self
+                .background(.regularMaterial,
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(AppTheme.separator.opacity(0.35), lineWidth: 0.5)
+                }
+        }
+    }
+
+    @ViewBuilder
+    func groupedGlassEffects(spacing: CGFloat = 12) -> some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { self }
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func appScreenBackground() -> some View {
+        if #available(iOS 26.0, *) {
+            self.background(AppScreenBackdrop())
+        } else {
+            self
+                .background(AppTheme.screenBackground.ignoresSafeArea())
+                .toolbarBackground(AppTheme.screenBackground, for: .navigationBar)
+        }
+    }
+}
+
+private struct AppScreenBackdrop: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            AppTheme.screenBackground
+            RadialGradient(
+                colors: [
+                    AppTheme.accent.opacity(colorScheme == .dark ? 0.10 : 0.07),
+                    .clear
+                ],
+                center: .topLeading,
+                startRadius: 0,
+                endRadius: 520
+            )
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(colorScheme == .dark ? 0.018 : 0.16),
+                    .clear
+                ],
+                startPoint: .top,
+                endPoint: .center
+            )
+        }
+        .ignoresSafeArea()
     }
 }

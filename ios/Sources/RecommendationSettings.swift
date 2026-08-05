@@ -41,10 +41,14 @@ struct RecommendationPreferences: Equatable, Sendable {
     static let standard = RecommendationPreferences()
 
     static var current: RecommendationPreferences {
-        let defaults = UserDefaults.standard
+        current(defaults: .standard)
+    }
+
+    static func current(defaults: UserDefaults) -> RecommendationPreferences {
+        let storedDiscovery = defaults.object(forKey: discoveryKey) as? Double ?? 0.45
         return RecommendationPreferences(
             memory: TasteMemory(rawValue: defaults.string(forKey: memoryKey) ?? "") ?? .balanced,
-            discovery: defaults.object(forKey: discoveryKey) as? Double ?? 0.45,
+            discovery: storedDiscovery.isFinite ? min(max(storedDiscovery, 0), 1) : 0.45,
             timelessFavorites: defaults.object(forKey: timelessFavoritesKey) as? Bool ?? true,
             learnFromSkips: defaults.object(forKey: learnFromSkipsKey) as? Bool ?? true
         )

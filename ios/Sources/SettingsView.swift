@@ -18,15 +18,34 @@ struct SettingsView: View {
                             ForEach(EQPreset.allCases) { Text($0.rawValue).tag($0) }
                         }
                         EQBandsView().listRowInsets(EdgeInsets(top: 10, leading: 8, bottom: 10, trailing: 8))
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                settings.restoreOriginalSound()
+                            }
+                            Haptics.success()
+                        } label: {
+                            Label("Restore Original Sound", systemImage: "arrow.counterclockwise")
+                        }
+                        .accessibilityHint("Turns off the equalizer and clears all custom adjustments")
                     }
                 } header: { Text("Equalizer") } footer: {
-                    if settings.eqEnabled { Text("Drag a band to fine-tune (switches to Custom).") }
+                    if settings.eqEnabled {
+                        Text("Drag a band to fine-tune (switches to Custom), or restore the song's original sound.")
+                    } else {
+                        Text("Off plays each song without equalizer adjustments.")
+                    }
                 }
 
                 Section {
                     Toggle("Sound Check", isOn: $settings.normalizationEnabled)
-                    Toggle("Gapless Playback", isOn: $settings.gaplessEnabled)
-                    Toggle("Crossfade", isOn: $settings.crossfadeEnabled)
+                    Toggle("Gapless Playback", isOn: Binding(
+                        get: { settings.gaplessEnabled },
+                        set: { settings.setGaplessEnabled($0) }
+                    ))
+                    Toggle("Crossfade", isOn: Binding(
+                        get: { settings.crossfadeEnabled },
+                        set: { settings.setCrossfadeEnabled($0) }
+                    ))
                     if settings.crossfadeEnabled {
                         HStack {
                             Text("Duration")
@@ -36,7 +55,7 @@ struct SettingsView: View {
                         Slider(value: $settings.crossfadeSeconds, in: 1...12, step: 1)
                     }
                 } header: { Text("Playback") } footer: {
-                    Text("Sound Check evens out volume without changing your files. Gapless Playback removes silence between consecutive tracks. Crossfade replaces the gapless transition when enabled.")
+                    Text("Sound Check balances volume. Gapless removes silence between tracks; Crossfade blends them instead.")
                 }
 
                 Section {
@@ -64,7 +83,7 @@ struct SettingsView: View {
                     Toggle("Keep Favorites Timeless", isOn: $timelessFavorites)
                     Toggle("Learn from Skips", isOn: $learnFromSkips)
                 } header: { Text("Smart Mix") } footer: {
-                    Text("Taste Memory controls how quickly old listening habits fade. Favorites stay marked until you remove the heart; when Keep Favorites Timeless is on, their recommendation boost never fades. Everything is calculated on this iPhone.")
+                    Text("Choose how quickly older listening affects Smart Mix. Recommendations are calculated on this iPhone.")
                 }
 
                 Section {
@@ -87,7 +106,13 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .tint(AppTheme.accent)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
         }
     }
 
@@ -125,8 +150,13 @@ struct EQBandsView: View {
                     .rotationEffect(.degrees(-90))
                     .frame(width: 108)
                     .frame(width: 30, height: 108)
-                    .tint(.indigo)
-                    Text(labels[i]).font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
+                    .tint(AppTheme.accent)
+                    .accessibilityLabel("\(labels[i]) hertz")
+                    .accessibilityValue("\(Int(settings.effectiveGains.indices.contains(i) ? settings.effectiveGains[i] : 0)) decibels")
+                    Text(labels[i])
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .minimumScaleFactor(0.8)
                 }
                 .frame(maxWidth: .infinity)
             }

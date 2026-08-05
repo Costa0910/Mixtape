@@ -34,6 +34,7 @@ struct CollectionLayoutPicker: View {
             }
         } label: {
             Image(systemName: selection.symbol)
+                .frame(minWidth: 44, minHeight: 44)
         }
         .accessibilityLabel("View as \(selection.title)")
         .accessibilityHint("Changes between list and grid layouts")
@@ -53,6 +54,7 @@ struct TrackGridView: View {
             .padding(.top, 12)
             .padding(.bottom, AppLayout.scrollEndPadding)
         }
+        .appScreenBackground()
     }
 }
 

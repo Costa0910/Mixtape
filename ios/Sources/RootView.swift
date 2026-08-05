@@ -29,7 +29,6 @@ struct RootView: View {
     @AppStorage("didOnboard") private var didOnboard = false
     @State private var selectedTab: AppTab = .listenNow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @State private var isLoading = true
 
@@ -45,7 +44,6 @@ struct RootView: View {
                 .transition(.opacity)
             }
         }
-        .id(colorScheme)
         .task {
             let startTime = Date()
             
@@ -62,8 +60,10 @@ struct RootView: View {
             _ = await Importer.repairArtworkIfNeeded(in: tracks, context: ctx)
             
             let elapsed = Date().timeIntervalSince(startTime)
-            if elapsed < 1.5 {
-                try? await Task.sleep(nanoseconds: UInt64((1.5 - elapsed) * 1_000_000_000))
+            // Keep very fast launches visually stable without making returning
+            // listeners wait through an artificial splash-screen delay.
+            if elapsed < 0.35 {
+                try? await Task.sleep(nanoseconds: UInt64((0.35 - elapsed) * 1_000_000_000))
             }
             
             withAnimation(.easeInOut(duration: 0.5)) {
@@ -181,6 +181,7 @@ private struct PlaybackMiniPlayerSlot: View {
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("miniPlayer")
+                .accessibilityAction(named: "Open Now Playing") { showNowPlaying = true }
                 .contentShape(Rectangle())
                 .onTapGesture { showNowPlaying = true }
                 .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
@@ -190,6 +191,7 @@ private struct PlaybackMiniPlayerSlot: View {
 
 private struct IntegratedDockTabBar: View {
     @Binding var selection: AppTab
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         tabItems
@@ -212,10 +214,10 @@ private struct IntegratedDockTabBar: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
-                    .foregroundStyle(selection == tab ? Color.indigo : Color.secondary)
+                    .foregroundStyle(selection == tab ? AppTheme.accent : Color.secondary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(selection == tab ? Color.indigo.opacity(0.12) : .clear,
+                    .background(selection == tab ? AppTheme.accent.opacity(colorScheme == .dark ? 0.20 : 0.12) : .clear,
                                 in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .animation(.snappy, value: selection)
                     .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -230,51 +232,25 @@ private struct IntegratedDockTabBar: View {
 }
 
 private struct LoadingView: View {
-    @State private var isAnimating = false
-
     var body: some View {
         ZStack {
-            // Elegant dark background matching the app theme
-            Color(red: 0.10, green: 0.12, blue: 0.15)
+            AppTheme.screenBackground
                 .ignoresSafeArea()
-            
-            VStack(spacing: 24) {
-                Spacer()
-                
-                // Actual Brand Logo (perfectly centered, transparent, seamless integration)
-                Image("SnagLogo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 160, height: 160)
-                
-                Spacer()
-                
-                // Spinner + preparing text
-                VStack(spacing: 12) {
-                    Circle()
-                        .trim(from: 0, to: 0.7)
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color(red: 0.83, green: 0.93, blue: 1.0), Color.clear],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            style: StrokeStyle(lineWidth: 3, lineCap: .round)
-                        )
-                        .frame(width: 32, height: 32)
-                        .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
-                        .onAppear {
-                            withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
-                                isAnimating = true
-                            }
-                        }
-                    
-                    Text("Preparing your experience...")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.bottom, 50)
+
+            VStack(spacing: 20) {
+                BrandMark(size: 104)
+
+                Text("Snag")
+                    .font(.title.weight(.bold))
+                    .tracking(-0.5)
+
+                ProgressView("Preparing your library")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .tint(AppTheme.accent)
+                    .padding(.top, 8)
             }
         }
+        .accessibilityElement(children: .combine)
     }
 }

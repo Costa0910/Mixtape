@@ -122,12 +122,9 @@ final class PlayerEngine: ObservableObject {
         setupEngine()
         setupRemoteCommands()
         startTicker()
-        settings.objectWillChange
+        settings.audioSettingsDidChange
             .sink { [weak self] in
-                Task { @MainActor in
-                    await Task.yield()
-                    self?.applyAudioSettings()
-                }
+                self?.applyAudioSettings()
             }
             .store(in: &cancellables)
         NotificationCenter.default.addObserver(self, selector: #selector(handleInterruption),

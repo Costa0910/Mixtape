@@ -68,6 +68,8 @@ struct PlaylistsView: View {
             }
         }
         .navigationTitle("Playlists")
+        .navigationBarTitleDisplayMode(.large)
+        .appScreenBackground()
         .toolbar {
             HStack {
                 CollectionLayoutPicker(selection: $layout)
@@ -82,7 +84,7 @@ struct PlaylistsView: View {
     }
 
     private func create() {
-        let name = newName.trimmingCharacters(in: .whitespaces)
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         ctx.insert(Playlist(name: name)); try? ctx.save()
         newName = ""; Haptics.success()
@@ -128,6 +130,7 @@ struct PlaylistDetailView: View {
         Group {
             if layout == .list { playlistList } else { playlistGrid }
         }
+        .appScreenBackground()
         .navigationTitle(playlist.name).navigationBarTitleDisplayMode(.inline)
         .toolbar {
             CollectionLayoutPicker(selection: $layout)
@@ -185,19 +188,22 @@ struct PlaylistDetailView: View {
             Text(playlist.name).font(.title2.bold()).tracking(-0.3)
             Text("\(items.count) song\(items.count == 1 ? "" : "s")")
                 .font(.subheadline).foregroundStyle(.secondary)
+            if items.isEmpty {
+                Text("Add songs from any track's More menu.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
 
             HStack(spacing: 12) {
                 Button { player.shuffle = false; player.play(items, startAt: 0); Haptics.rigid() } label: {
                     Label("Play", systemImage: "play.fill")
-                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                        .background(Color.indigo, in: Capsule()).foregroundStyle(.white)
-                }.buttonStyle(Pressable()).disabled(items.isEmpty)
+                }.buttonStyle(PrimaryActionButtonStyle()).disabled(items.isEmpty)
                 Button { player.playShuffled(items); Haptics.rigid() } label: {
                     Label("Shuffle", systemImage: "shuffle")
-                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 12)
-                        .background(.ultraThinMaterial, in: Capsule())
-                }.buttonStyle(Pressable()).disabled(items.isEmpty)
+                }.buttonStyle(SecondaryActionButtonStyle()).disabled(items.isEmpty)
             }
+            .groupedGlassEffects()
         }
     }
 }
@@ -311,7 +317,7 @@ struct AddToPlaylistSheet: View {
     }
 
     private func createAndAdd() {
-        let name = newName.trimmingCharacters(in: .whitespaces)
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let pl = Playlist(name: name, trackIDs: [track.id])
         ctx.insert(pl); try? ctx.save()
