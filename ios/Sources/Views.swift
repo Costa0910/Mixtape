@@ -634,10 +634,11 @@ struct ListeningCollectionDetailView: View {
     @Query private var library: [Track]
     @AppStorage("collectionLayout.listeningTracks") private var layout: CollectionLayoutMode = .list
 
-    private var tracks: [Track] { kind.tracks(from: library) }
-
     var body: some View {
-        Group {
+        // Sort the library once per render (not on every property access), and
+        // render rows lazily below so opening the screen stays instant.
+        let tracks = kind.tracks(from: library)
+        return Group {
             if tracks.isEmpty {
                 ContentUnavailableView {
                     Label(kind.emptyTitle, systemImage: kind.symbol)
@@ -693,7 +694,7 @@ struct ListeningCollectionDetailView: View {
                         .padding(.horizontal, 4)
 
                         if layout == .list {
-                            VStack(spacing: 0) {
+                            LazyVStack(spacing: 0) {
                                 ForEach(Array(tracks.enumerated()), id: \.element.id) { pair in
                                     Button {
                                         Haptics.light()
