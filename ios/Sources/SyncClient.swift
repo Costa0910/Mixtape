@@ -10,6 +10,26 @@ final class SyncClient: ObservableObject {
     @Published var busy = false
 
     private let logger = Logger(subsystem: "com.costa.SnagPlayer", category: "SyncClient")
+    private let session: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 15
+        cfg.timeoutIntervalForResource = 300
+        cfg.httpCookieAcceptPolicy = .always
+        cfg.httpShouldSetCookies = true
+        return URLSession(configuration: cfg)
+    }()
+
+    enum SyncError: LocalizedError {
+        case invalidHost, authFailed(Int), manifestFailed(Int), downloadFailed(String, Int)
+        var errorDescription: String? {
+            switch self {
+            case .invalidHost: return "That address doesn't look right."
+            case .authFailed(let c): return "Authentication failed (HTTP \(c)). Check the PIN."
+            case .manifestFailed(let c): return "Couldn't read library (HTTP \(c)). Check address and PIN."
+            case .downloadFailed(let p, let c): return "Failed to download \(p) (HTTP \(c))."
+            }
+        }
+    }
 
     struct Manifest: Decodable {
         let tracks: [Item]
@@ -39,27 +59,47 @@ final class SyncClient: ObservableObject {
         }
 
         logger.info("Sync started. Authenticating with Snag Mac server at \(base)...")
-        // 1) authenticate (server sets a session cookie stored by URLSession)
+        // 1) authenticate (server sets a session cookie stored by ephemeral session)
         var login = URLRequest(url: baseURL.appendingPathComponent("login"))
         login.httpMethod = "POST"
         login.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        login.httpBody = "pin=\(pin)".data(using: .utf8)
-        
+        let encodedPIN = pin.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? pin
+        login.httpBody = "pin=\(encodedPIN)".data(using: .utf8)
+
         do {
-            _ = try await URLSession.shared.data(for: login)
-            logger.info("Sent login request to server.")
+            let (_, resp) = try await session.data(for: login)
+            if let http = resp as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                status = SyncError.authFailed(http.statusCode).localizedDescription
+                logger.error("Authentication failed with HTTP \(http.statusCode)")
+                return
+            }
+            logger.info("Authentication succeeded.")
         } catch {
+            status = "Couldn't reach Snag on the Mac. Check the address and that Wi-Fi is on."
             logger.error("Authentication request failed: \(error.localizedDescription)")
+            return
         }
 
         // 2) fetch the manifest
         status = "Reading your Mac's library…"
-        guard let manURL = URL(string: "\(base)/manifest"),
-              let (mdata, resp) = try? await URLSession.shared.data(from: manURL),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let manifest = try? JSONDecoder().decode(Manifest.self, from: mdata) else {
+        let manifest: Manifest
+        do {
+            let manURL = baseURL.appendingPathComponent("manifest")
+            let (mdata, resp) = try await session.data(from: manURL)
+            guard let http = resp as? HTTPURLResponse else { throw SyncError.manifestFailed(-1) }
+            guard (200...299).contains(http.statusCode) else {
+                status = SyncError.manifestFailed(http.statusCode).localizedDescription
+                logger.error("Manifest fetch failed with HTTP \(http.statusCode)")
+                return
+            }
+            manifest = try JSONDecoder().decode(Manifest.self, from: mdata)
+        } catch let err as SyncError {
+            status = err.localizedDescription
+            logger.error("Manifest error: \(err.localizedDescription)")
+            return
+        } catch {
             status = "Couldn't reach Snag on the Mac. Check the address, PIN, and that Wireless is on."
-            logger.error("Failed to reach server manifest endpoint or parse response.")
+            logger.error("Failed to reach server manifest endpoint or parse response: \(error.localizedDescription)")
             return
         }
         logger.info("Successfully fetched manifest containing \(manifest.tracks.count) tracks.")
@@ -105,42 +145,84 @@ final class SyncClient: ObservableObject {
         logger.info("Starting downloads for \(todo.count) tracks...")
         var done = 0
         var refreshed = 0
-        for pending in todo {
-            let item = pending.item
-            status = "Downloading \(done + 1) of \(todo.count)…"
-            let enc = item.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? item.path
-            guard let fileURL = URL(string: "\(base)/f/\(enc)"),
-                  let (tmp, response) = try? await URLSession.shared.download(from: fileURL),
-                  (response as? HTTPURLResponse)?.statusCode == 200 else {
-                logger.error("Failed to download track from server: \(item.path)")
-                continue
-            }
-
-            let pathParts = item.path.split(separator: "/")
-            let serverAlbum = pathParts.count >= 2 ? String(pathParts[0]) : nil
-
-            let named = FileManager.default.temporaryDirectory
-                .appendingPathComponent((item.path as NSString).lastPathComponent)
-            try? FileManager.default.removeItem(at: named)
-            try? FileManager.default.moveItem(at: tmp, to: named)
-            
-            logger.info("Importing downloaded file: \(named.lastPathComponent)")
-            if let track = await Importer.makeTrack(from: named, albumSubfolder: serverAlbum,
-                                                    sourcePath: item.path, sourceSize: Int64(item.size)) {
-                if let existing = pending.replacing {
-                    replace(existing, with: track)
-                    refreshed += 1
-                    logger.info("Successfully refreshed existing track: '\(track.title)'")
-                } else {
-                    ctx.insert(track)
-                    logger.info("Successfully inserted new track: '\(track.title)'")
+        // Concurrent downloads (max 2) with cancellation support.
+        // Each download + import is isolated; failures are logged but don't abort the batch.
+        let maxConcurrent = 2
+        var index = 0
+        while index < todo.count {
+            try? Task.checkCancellation()
+            if Task.isCancelled { break }
+            let batch = todo[index..<min(index + maxConcurrent, todo.count)]
+            await withTaskGroup(of: (Int, Bool, Bool).self) { group in
+                for pending in batch {
+                    group.addTask {
+                        let item = pending.item
+                        var success = false
+                        var wasRefresh = false
+                        // 1 retry on timeout
+                        var attempt = 0
+                        var downloadedURL: URL?
+                        while attempt < 2 {
+                            attempt += 1
+                            let enc = item.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? item.path
+                            guard let fileURL = URL(string: "\(base)/f/\(enc)") else {
+                                self.logger.error("Invalid download URL for track: \(item.path)")
+                                break
+                            }
+                            do {
+                                let (downloaded, response) = try await self.session.download(from: fileURL)
+                                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                                    let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                                    self.logger.error("Failed to download track \(item.path) — HTTP \(code)")
+                                    break
+                                }
+                                downloadedURL = downloaded
+                                break
+                            } catch {
+                                let isTimeout = (error as? URLError)?.code == .timedOut
+                                self.logger.error("Download failed for \(item.path) (attempt \(attempt)): \(error.localizedDescription)")
+                                if !isTimeout || attempt >= 2 { break }
+                            }
+                        }
+                        guard let tmp = downloadedURL else { return (0, false, false) }
+                        let pathParts = item.path.split(separator: "/")
+                        let serverAlbum = pathParts.count >= 2 ? String(pathParts[0]) : nil
+                        let named = FileManager.default.temporaryDirectory
+                            .appendingPathComponent((item.path as NSString).lastPathComponent)
+                        try? FileManager.default.removeItem(at: named)
+                        try? FileManager.default.moveItem(at: tmp, to: named)
+                        self.logger.info("Importing downloaded file: \(named.lastPathComponent)")
+                        if let track = await Importer.makeTrack(from: named, albumSubfolder: serverAlbum,
+                                                                sourcePath: item.path, sourceSize: Int64(item.size)) {
+                            await MainActor.run {
+                                if let existing = pending.replacing {
+                                    self.replace(existing, with: track)
+                                    wasRefresh = true
+                                } else {
+                                    ctx.insert(track)
+                                }
+                            }
+                            success = true
+                            self.logger.info("Successfully imported track: '\(track.title)'")
+                        } else {
+                            self.logger.error("Failed to import downloaded track: \(item.path)")
+                        }
+                        try? FileManager.default.removeItem(at: named)
+                        return (success ? 1 : 0, success, wasRefresh)
+                    }
                 }
-                done += 1
-            } else {
-                logger.error("Failed to import downloaded track: \(item.path)")
+                for await (inc, ok, wasRefresh) in group {
+                    if ok {
+                        done += inc
+                        if wasRefresh { refreshed += 1 }
+                    }
+                    await MainActor.run {
+                        self.status = "Downloading \(min(done + 1, todo.count)) of \(todo.count)…"
+                        self.progress = Double(done) / Double(todo.count)
+                    }
+                }
             }
-            try? FileManager.default.removeItem(at: named)
-            progress = Double(done) / Double(todo.count)
+            index += maxConcurrent
         }
         do {
             try ctx.save()

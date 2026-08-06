@@ -14,6 +14,7 @@ enum AppLayout {
 
 enum AppTheme {
     static let accent = Color.indigo
+    static let accentSecondary = Color.indigo.opacity(0.85) // used for pressed/secondary accent states
     static let cardRadius: CGFloat = 16
     static let compactRadius: CGFloat = 12
     static let controlHeight: CGFloat = 50
@@ -22,6 +23,8 @@ enum AppTheme {
     static let surface = Color(uiColor: .secondarySystemGroupedBackground)
     static let elevatedSurface = Color(uiColor: .tertiarySystemGroupedBackground)
     static let separator = Color(uiColor: .separator)
+    /// Single source for placeholder artwork tint
+    static let placeholderArtwork = Color(uiColor: .secondarySystemFill)
 
     static func glassTint(for colorScheme: ColorScheme) -> Color {
         Color(uiColor: .systemBackground)
@@ -32,11 +35,23 @@ enum AppTheme {
 // MARK: - Haptics (reserved for meaningful moments — §13 utility)
 
 enum Haptics {
-    static func light()  { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-    static func rigid()  { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
-    static func soft()   { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
-    static func select() { UISelectionFeedbackGenerator().selectionChanged() }
-    static func success(){ UINotificationFeedbackGenerator().notificationOccurred(.success) }
+    private static let lightGenerator = UIImpactFeedbackGenerator(style: .light)
+    private static let rigidGenerator = UIImpactFeedbackGenerator(style: .rigid)
+    private static let softGenerator = UIImpactFeedbackGenerator(style: .soft)
+    private static let selectionGenerator = UISelectionFeedbackGenerator()
+    private static let notificationGenerator = UINotificationFeedbackGenerator()
+
+    static func prepare() {
+        lightGenerator.prepare(); rigidGenerator.prepare()
+        softGenerator.prepare(); selectionGenerator.prepare()
+        notificationGenerator.prepare()
+    }
+
+    static func light()  { lightGenerator.impactOccurred(); lightGenerator.prepare() }
+    static func rigid()  { rigidGenerator.impactOccurred(); rigidGenerator.prepare() }
+    static func soft()   { softGenerator.impactOccurred(); softGenerator.prepare() }
+    static func select() { selectionGenerator.selectionChanged(); selectionGenerator.prepare() }
+    static func success(){ notificationGenerator.notificationOccurred(.success); notificationGenerator.prepare() }
 }
 
 // MARK: - Motion

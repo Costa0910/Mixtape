@@ -7,7 +7,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.2.0"
+    MARKETING_VERSION: "0.2.1"
     CURRENT_PROJECT_VERSION: "1"
     PRODUCT_NAME: Snag
     ARCHS: "arm64 x86_64"          # universal: run natively on Apple Silicon + Intel

@@ -10,7 +10,7 @@ settings:
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
     PRODUCT_NAME: Snag
-    TARGETED_DEVICE_FAMILY: "1"          # iPhone
+    TARGETED_DEVICE_FAMILY: "1,2"        # iPhone + iPad
     DEVELOPMENT_TEAM: 5HT736L2AJ
     CODE_SIGN_STYLE: Automatic
 targets:
@@ -31,7 +31,6 @@ targets:
         CFBundleDisplayName: Snag
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
-        UIRequiresFullScreen: true
         UIBackgroundModes: [audio]
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
@@ -45,8 +44,13 @@ targets:
             CFBundleURLSchemes: [snag]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
 
   SnagWidgetExtension:
     type: app-extension

@@ -30,6 +30,7 @@ struct RootView: View {
     @State private var selectedTab: AppTab = .listenNow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("hasSeeded") private var hasSeeded = false
     @State private var isLoading = true
 
     var body: some View {
@@ -45,28 +46,20 @@ struct RootView: View {
             }
         }
         .task {
-            let startTime = Date()
-            
-            // dev-only: import any audio dropped into Documents (for testing)
-            if ProcessInfo.processInfo.environment["SNAG_SEED"] != nil,
+            // dev-only: import any audio dropped into Documents (for testing), gated to once.
+            if !hasSeeded, ProcessInfo.processInfo.environment["SNAG_SEED"] != nil,
                ((try? ctx.fetchCount(FetchDescriptor<Track>())) ?? 0) == 0 {
                 let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
                 let audio = ((try? FileManager.default.contentsOfDirectory(at: docs, includingPropertiesForKeys: nil)) ?? [])
                     .filter { Storage.isAudio($0) }
                 if !audio.isEmpty { _ = await Importer.importFiles(audio, into: ctx) }
+                hasSeeded = true
             }
-            
+
             let tracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
             _ = await Importer.repairArtworkIfNeeded(in: tracks, context: ctx)
-            
-            let elapsed = Date().timeIntervalSince(startTime)
-            // Keep very fast launches visually stable without making returning
-            // listeners wait through an artificial splash-screen delay.
-            if elapsed < 0.35 {
-                try? await Task.sleep(nanoseconds: UInt64((0.35 - elapsed) * 1_000_000_000))
-            }
-            
-            withAnimation(.easeInOut(duration: 0.5)) {
+
+            withAnimation(.easeInOut(duration: 0.25)) {
                 isLoading = false
             }
         }

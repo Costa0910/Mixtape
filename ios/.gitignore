@@ -1,0 +1,6 @@
+# iOS local builds — sandboxed, not committed
+build/
+build-*/
+build-universal/
+DerivedData/
+*.png

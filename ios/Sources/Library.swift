@@ -103,19 +103,24 @@ enum Importer {
         let audioRel = "Audio/\(sanitizedSub)/\(name)"
         let dest = Storage.media.appendingPathComponent(audioRel)
         
-        do {
-            let parent = dest.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-            if !FileManager.default.fileExists(atPath: dest.path) {
-                try FileManager.default.copyItem(at: src, to: dest)
-                logger.info("Copied audio file to destination: \(audioRel)")
-            } else {
-                logger.info("Destination audio file already exists, skipping copy: \(audioRel)")
+        // File IO off the caller’s actor — copy can block on security-scoped URLs / iCloud
+        let copyOK: Bool = await Task.detached(priority: .userInitiated) {
+            do {
+                let parent = dest.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                if !FileManager.default.fileExists(atPath: dest.path) {
+                    try FileManager.default.copyItem(at: src, to: dest)
+                }
+                return true
+            } catch {
+                return false
             }
-        } catch {
-            logger.error("Failed to copy file to media store: \(error.localizedDescription) at path: \(dest.path)")
+        }.value
+        if !copyOK {
+            logger.error("Failed to copy file to media store at path: \(dest.path)")
             return nil
         }
+        logger.info("Copied audio file to destination: \(audioRel)")
 
         let artRel = artworkData.flatMap(storeArtwork)
         let normalizationGainDB = await Task.detached(priority: .utility) {
@@ -246,20 +251,40 @@ enum Importer {
     }
 
     /// Measures older files that were imported before loudness normalization.
-    /// Pull-to-refresh uses this as a one-time, local library upgrade.
+    /// Pull-to-refresh uses this as a one-time, local library upgrade. Batched with TaskGroup (concurrency 2).
     @MainActor
     static func refreshMissingAudioAnalysis(in tracks: [Track], context: ModelContext) async -> Int {
+        let candidates = tracks.filter { $0.normalizationGainDB == nil }
+        guard !candidates.isEmpty else { return 0 }
         var updated = 0
-        for track in tracks where track.normalizationGainDB == nil {
+        let maxConcurrent = 2
+        var index = 0
+        while index < candidates.count {
             if Task.isCancelled { break }
-            let url = track.url
-            logger.info("Analyzing missing loudness normalization for track '\(track.title)'")
-            let gain = await Task.detached(priority: .utility) {
-                LoudnessAnalyzer.analyze(url)
-            }.value
-            track.normalizationGainDB = gain ?? 0
-            updated += 1
-            logger.info("Loudness normalization analysis completed for track '\(track.title)': \(gain ?? 0) dB")
+            let batch = candidates[index..<min(index + maxConcurrent, candidates.count)]
+            let results: [(UUID, Double)] = await withTaskGroup(of: (UUID, Double).self) { group in
+                for track in batch {
+                    group.addTask {
+                        let gain = await Task.detached(priority: .utility) {
+                            LoudnessAnalyzer.analyze(track.url)
+                        }.value ?? 0
+                        return (track.id, gain)
+                    }
+                }
+                var out: [(UUID, Double)] = []
+                for await r in group { out.append(r) }
+                return out
+            }
+            let byID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+            for (id, gain) in results {
+                if Task.isCancelled { break }
+                if let track = byID[id] {
+                    track.normalizationGainDB = gain
+                    updated += 1
+                    logger.info("Loudness normalization analysis completed for track '\(track.title)': \(gain) dB")
+                }
+            }
+            index += maxConcurrent
         }
         if updated > 0 {
             try? context.save()
@@ -366,11 +391,7 @@ enum Importer {
         var artRel: String?
         if let img = item.artwork?.image(at: CGSize(width: 600, height: 600)),
            let data = img.jpegData(compressionQuality: 0.85) {
-            let key = item.albumTitle ?? item.title ?? UUID().uuidString
-            let rel = "Artwork/\(abs(key.hashValue)).jpg"
-            let out = Storage.media.appendingPathComponent(rel)
-            if !FileManager.default.fileExists(atPath: out.path) { try? data.write(to: out) }
-            artRel = rel
+            artRel = storeArtwork(data)
         }
 
         let normalizationGainDB = await Task.detached(priority: .utility) {

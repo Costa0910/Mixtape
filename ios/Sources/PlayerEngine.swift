@@ -68,7 +68,7 @@ final class PlayerEngine: ObservableObject {
     // Sleep timer
     @Published var sleepTimerRemaining: TimeInterval? = nil
     @Published var sleepTimerEndBlock: Bool = false
-    private var sleepTimer: Timer? = nil
+    private var sleepTask: Task<Void, Never>? = nil
 
     // MARK: audio graph
     private let engine = AVAudioEngine()
@@ -84,8 +84,8 @@ final class PlayerEngine: ObservableObject {
     private var scheduleSerial = 0
     private var nodeScheduleTokens = [0, 0]
     private var crossfading = false
-    private var crossfadeTimer: Timer?
-    private var ticker: Timer?
+    private var crossfadeTask: Task<Void, Never>?
+    private var tickerTask: Task<Void, Never>?
     private let settings = PlaybackSettings.shared
     private var cancellables = Set<AnyCancellable>()
     private var sessionIsActive = false
@@ -577,17 +577,19 @@ final class PlayerEngine: ObservableObject {
         nodes[to].play()
         let dur = max(0.5, settings.crossfadeSeconds)
         let steps = max(4, Int(dur * 20))
-        var step = 0
-        crossfadeTimer?.invalidate()
-        crossfadeTimer = Timer.scheduledTimer(withTimeInterval: dur / Double(steps), repeats: true) { [weak self] t in
-            Task { @MainActor in
-                guard let self, self.crossfading else { t.invalidate(); return }
-                step += 1
+        crossfadeTask?.cancel()
+        crossfadeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for step in 1...steps {
+                guard !Task.isCancelled, self.crossfading else { return }
+                if step < steps {
+                    try? await Task.sleep(nanoseconds: UInt64((dur / Double(steps)) * 1_000_000_000))
+                    guard !Task.isCancelled, self.crossfading else { return }
+                }
                 let p = Float(step) / Float(steps)
                 self.nodes[from].volume = max(0, 1 - p)
                 self.nodes[to].volume = min(1, p)
-                if step >= steps {
-                    t.invalidate()
+                if step == steps {
                     self.completeCrossfade(from: from, to: to, newPos: np)
                 }
             }
@@ -613,7 +615,7 @@ final class PlayerEngine: ObservableObject {
     }
 
     private func cancelCrossfade() {
-        crossfadeTimer?.invalidate(); crossfadeTimer = nil
+        crossfadeTask?.cancel(); crossfadeTask = nil
         if crossfading {
             let other = 1 - active
             invalidateSchedule(on: other); nodes[other].volume = 1
@@ -698,10 +700,18 @@ final class PlayerEngine: ObservableObject {
     // MARK: time / ticker
 
     private func startTicker() {
-        ticker = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        tickerTask?.cancel()
+        tickerTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard !Task.isCancelled else { break }
+                self?.tick()
+            }
         }
-        ticker?.tolerance = 0.03
+    }
+
+    private func stopTicker() {
+        tickerTask?.cancel(); tickerTask = nil
     }
 
     private func tick() {
@@ -778,30 +788,38 @@ final class PlayerEngine: ObservableObject {
     // MARK: sleep timer
 
     func setSleepTimer(minutes: Int?) {
-        sleepTimer?.invalidate(); sleepTimer = nil
+        sleepTask?.cancel(); sleepTask = nil
         sleepTimerEndBlock = false
         guard let minutes else { sleepTimerRemaining = nil; return }
         sleepTimerRemaining = TimeInterval(minutes * 60)
-        sleepTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
+        sleepTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let self, !Task.isCancelled else { return }
                 if let rem = self.sleepTimerRemaining {
                     if rem <= 1 {
                         self.sleepTimerRemaining = nil
-                        self.sleepTimer?.invalidate(); self.sleepTimer = nil
+                        self.sleepTask?.cancel(); self.sleepTask = nil
                         if self.isPlaying { self.playPause() }
+                        return
                     } else {
                         self.sleepTimerRemaining = rem - 1
                     }
-                }
+                } else { return }
             }
         }
     }
 
     func setSleepTimerEndBlock() {
-        sleepTimer?.invalidate(); sleepTimer = nil
+        sleepTask?.cancel(); sleepTask = nil
         sleepTimerRemaining = nil
         sleepTimerEndBlock = true
+    }
+
+    func cancelSleepTimer() {
+        sleepTask?.cancel(); sleepTask = nil
+        sleepTimerRemaining = nil
+        sleepTimerEndBlock = false
     }
 
     // MARK: session / remote / now playing

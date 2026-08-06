@@ -11,7 +11,7 @@ struct BrowseRow: View {
     let count: Int
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: icon).font(.body).foregroundStyle(.indigo).frame(width: 26)
+            Image(systemName: icon).font(.body).foregroundStyle(AppTheme.accent).frame(width: 26)
             Text(title).font(.body.weight(.medium))
             Spacer()
             Text("\(count)").foregroundStyle(.secondary)
@@ -42,24 +42,42 @@ struct AllSongsView: View {
     @Query private var tracks: [Track]
     @AppStorage("songSort") private var sortRaw = SongSort.title.rawValue
     @AppStorage("collectionLayout.songs") private var layout: CollectionLayoutMode = .list
+    @State private var sortedTracks: [Track] = []
+    @State private var sortedTracksKey: String = ""
 
     private var sort: SongSort { SongSort(rawValue: sortRaw) ?? .title }
 
-    private var sorted: [Track] {
+    private func sortKey(for tracks: [Track], sort: SongSort) -> String {
+        "\(tracks.count)-\(sort.rawValue)-\(tracks.first?.id.uuidString ?? "")-\(tracks.last?.id.uuidString ?? "")"
+    }
+
+    private func sorted(_ tracks: [Track], by sort: SongSort) -> [Track] {
         switch sort {
-        case .title:  return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .artist: return tracks.sorted { $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending }
-        case .recent: return tracks.sorted { $0.dateAdded > $1.dateAdded }
-        case .plays:  return tracks.sorted { $0.playCount > $1.playCount }
+        case .title:
+            return tracks.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .artist:
+            return tracks.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending }
+        case .recent:
+            return tracks.sorted { $0.dateAdded > $1.dateAdded }
+        case .plays:
+            return tracks.sorted { $0.playCount > $1.playCount }
         }
     }
 
+    private func refreshSorted() {
+        let key = sortKey(for: tracks, sort: sort)
+        guard key != sortedTracksKey else { return }
+        sortedTracks = sorted(tracks, by: sort)
+        sortedTracksKey = key
+    }
+
     var body: some View {
-        Group {
+        let data = sortedTracks.isEmpty && !tracks.isEmpty ? sorted(tracks, by: sort) : sortedTracks
+        return Group {
             if layout == .list {
                 List {
-                    ForEach(Array(sorted.enumerated()), id: \.element.id) { pair in
-                        Button { player.play(sorted, startAt: pair.offset); Haptics.light() } label: {
+                    ForEach(Array(data.enumerated()), id: \.element.id) { pair in
+                        Button { player.play(data, startAt: pair.offset); Haptics.light() } label: {
                             TrackRow(track: pair.element, playing: player.current?.id == pair.element.id)
                         }
                         .buttonStyle(.plain)
@@ -69,19 +87,22 @@ struct AllSongsView: View {
                 }
                 .listStyle(.plain)
             } else {
-                TrackGridView(tracks: sorted, currentTrackID: player.current?.id) { index in
-                    player.play(sorted, startAt: index)
+                TrackGridView(tracks: data, currentTrackID: player.current?.id) { index in
+                    player.play(data, startAt: index)
                 }
             }
         }
         .appScreenBackground()
         .navigationTitle("Songs").navigationBarTitleDisplayMode(.inline)
+        .onAppear { refreshSorted() }
+        .onChange(of: tracks) { _, _ in refreshSorted() }
+        .onChange(of: sortRaw) { _, _ in refreshSorted() }
         .toolbar {
             HStack {
                 CollectionLayoutPicker(selection: $layout)
-                Button { player.playShuffled(sorted); Haptics.rigid() } label: {
+                Button { player.playShuffled(data); Haptics.rigid() } label: {
                     Image(systemName: "shuffle")
-                }.disabled(sorted.isEmpty)
+                }.disabled(data.isEmpty)
                 Menu {
                     Picker("Sort", selection: $sortRaw) {
                         ForEach(SongSort.allCases) { s in

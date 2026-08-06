@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DIR="$ROOT_DIR/build-release-current"
 OUTPUT_DIR="$ROOT_DIR/dist"
 APP_PATH="$DERIVED_DIR/Build/Products/Release/Snag.app"
-VERSION="0.2.0"
+VERSION="0.2.1"
 DMG_PATH="$OUTPUT_DIR/Snag-$VERSION.dmg"
 ZIP_PATH="$OUTPUT_DIR/Snag-$VERSION.zip"
 IDENTITY="${SNAG_SIGNING_IDENTITY:-Developer ID Application: Armando Costa (5HT736L2AJ)}"
@@ -28,7 +28,9 @@ xcodebuild \
 
 while IFS= read -r candidate; do
   if /usr/bin/file "$candidate" | /usr/bin/grep -q 'Mach-O'; then
-    /usr/bin/codesign --force --options runtime "$TIMESTAMP_OPTION" --sign "$IDENTITY" "$candidate"
+    /usr/bin/codesign --force --options runtime "$TIMESTAMP_OPTION" \
+      --entitlements "$ROOT_DIR/Sources/tools.entitlements" \
+      --sign "$IDENTITY" "$candidate"
   fi
 done < <(/usr/bin/find "$APP_PATH/Contents/Resources/bin" -type f -print)
 

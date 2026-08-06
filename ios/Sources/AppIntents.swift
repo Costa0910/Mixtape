@@ -3,11 +3,22 @@ import SwiftData
 
 // One SwiftData container shared by the app (and, later, the widget) so intents can
 // read the library. Uses the default on-disk store, so it's the same data the UI sees.
+// Injected via SnagPlayerApp.modelContainer — tests/previews can supply their own in-memory container via SharedStore.makeContainer().
 enum SharedStore {
-    static let container: ModelContainer = {
-        do { return try ModelContainer(for: Track.self, Playlist.self) }
+    static let container: ModelContainer = makeContainer()
+
+    static func makeContainer(inMemory: Bool = false) -> ModelContainer {
+        let config = ModelConfiguration(isStoredInMemoryOnly: inMemory)
+        do { return try ModelContainer(for: Track.self, Playlist.self, configurations: config) }
         catch { fatalError("Failed to open store: \(error)") }
-    }()
+    }
+
+    /// For previews/tests: create an in-memory container pre-filled with optional tracks.
+    @MainActor static func previewContainer(tracks: [Track] = []) -> ModelContainer {
+        let c = makeContainer(inMemory: true)
+        for t in tracks { c.mainContext.insert(t) }
+        return c
+    }
 }
 
 // MARK: - Shared quick actions (used by intents and by snag:// deep links)
